@@ -37,4 +37,4 @@ switch:                         # 切换条款
   pb_percentile_threshold: 0.20 # 创业板PB十年分位≤20% → 暂停策略A
 
 alert_stale_days: 14
-page_url: ""                    # GitHub Pages 网址，部署后填
+page_url: "https://binbin1555.github.io/zhonggai-hongli/"   # Bark 推送点击跳转
