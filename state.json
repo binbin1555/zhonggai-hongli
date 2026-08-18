@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-08-18 22:03:10+08:00",
+ "generated_at": "2026-08-18 22:06:22+08:00",
  "data_updated": "2026-08-18",
  "stale_days": 0,
  "fetch_ok": true,
@@ -10,7 +10,8 @@
   "OK   tencent sh513050 (83)",
   "OK   tencent sh512890 (83)",
   "OK   tencent sh515180 (83)",
-  "OK   csindex 000922 (83)",
+  "FAIL csindex 000922: URLError <urlopen error [Errno 104] Connection reset by peer>",
+  "OK   tencent sh000922 (83)",
   "OK   lixinger 399006 PB (83)"
  ],
  "acknowledged": {},
