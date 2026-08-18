@@ -94,11 +94,7 @@ def main():
     # 从头重放的架构下，晚几天发现某次分红不影响结果 ——
     # 下次重放会按正确的除息日补记回去，自愈。
     divs = DIV.load()
-    dpath = DIV.OUT
-    age = 999
-    if os.path.exists(dpath):
-        age = (time.time() - os.path.getmtime(dpath)) / 86400.0
-    if age > 7:
+    if DIV.age_days() > 7:
         try:
             res, dlog = DIV.collect(DIV.part_codes(cfg))
             for line in dlog:

@@ -16,6 +16,7 @@ import os
 import re
 import ssl
 import urllib.request
+from datetime import date
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "data", "dividends.json")
@@ -141,18 +142,37 @@ def part_codes(cfg):
 
 
 def load():
-    if not os.path.exists(OUT):
+    """返回 {代码: {除息日: 每份派现}}；文件缺失或损坏都退化为空表，绝不抛错。"""
+    try:
+        with open(OUT, encoding="utf-8") as f:
+            d = json.load(f)
+        return {k: v for k, v in d.items() if not k.startswith("_")}
+    except Exception:                                       # noqa: BLE001
         return {}
-    with open(OUT, encoding="utf-8") as f:
-        return json.load(f)
+
+
+def age_days():
+    """距上次成功刷新的天数。取 json 内的时间戳 ——
+    不能用文件 mtime：GitHub Actions 每次全新 checkout，mtime 恒为当次运行时刻。"""
+    try:
+        with open(OUT, encoding="utf-8") as f:
+            ts = json.load(f).get("_refreshed_at")
+        if not ts:
+            return 9999
+        d = date(*map(int, ts[:10].split("-")))
+        return (date.today() - d).days
+    except Exception:                                       # noqa: BLE001
+        return 9999
 
 
 def save(res):
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     old = load()
     old.update(res)                     # 抓失败的标的保留上次结果，不清空
+    out = dict(old)
+    out["_refreshed_at"] = date.today().isoformat()
     with open(OUT, "w", encoding="utf-8") as f:
-        json.dump(old, f, ensure_ascii=False, indent=1, sort_keys=True)
+        json.dump(out, f, ensure_ascii=False, indent=1, sort_keys=True)
     return old
 
 
