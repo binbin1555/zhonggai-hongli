@@ -1,0 +1,40 @@
+# 策略A 监控系统配置
+# 本文件与 策略A_执行规则_v1.md 严格对应，改这里等于改规则，务必同步文档
+
+start_date: "2026-08-17"        # 策略启动日
+total_capital: 1850000          # 总额
+
+cash_rate_annual: 0.018         # 闲置资金年化（货币ETF/逆回购）
+
+part1:                          # 第一份 · 中概互联
+  code: "sh513050"
+  capital: 300000
+  lump_sum: 150000              # 已一次性买入
+  ammo: 150000                  # 待定投弹药
+  dca_weeks: 26                 # 分26周
+  dca_weekday: 2                # 定投目标星期（周一=0，周三=2）；休市则顺延
+  dca_start_date: "2026-08-26"  # 首次定投日（下周三）；此日之前不定投
+  arm_target: 400000            # 总市值达此值→武装
+  arm_timeout_years: 3          # 兜底武装
+  ma_n: 250
+  accel:                        # 加速条款（基准=持仓加权成本）
+    - {drawdown: 0.15, deploy: 0.5}   # 浮亏15% → 投剩余弹药1/2
+    - {drawdown: 0.25, deploy: 1.0}   # 浮亏25% → 投剩余全部
+
+part2:                          # 第二份 · 红利低波（买入持有，不操作）
+  code: "sh512890"
+  capital: 775000
+
+part3:                          # 第三份 · 中证红利网格
+  signal_code: "000922"         # 信号：中证红利指数
+  hold_code: "sh515180"         # 标的：中证红利ETF
+  capital: 775000
+  ma_n: 250
+  buy_tiers: [0.96, 0.93, 0.90] # 跌破 MA250×t 各买1/3
+  exit_ratio: 1.03              # 涨过 MA250×1.03 全清
+
+switch:                         # 切换条款
+  pb_percentile_threshold: 0.20 # 创业板PB十年分位≤20% → 暂停策略A
+
+alert_stale_days: 14
+page_url: ""                    # GitHub Pages 网址，部署后填

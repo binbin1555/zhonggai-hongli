@@ -1,0 +1,99 @@
+{
+ "generated_at": "2026-08-18 21:02:08+08:00",
+ "data_updated": "2026-08-18",
+ "stale_days": 0,
+ "fetch_ok": true,
+ "added": [
+  "2026-08-18"
+ ],
+ "revised": [],
+ "skipped": [],
+ "log": [
+  "OK   tencent sh513050 (83)",
+  "OK   tencent sh512890 (83)",
+  "OK   tencent sh515180 (83)",
+  "OK   csindex 000922 (83)",
+  "FAIL lixinger 399006 PB: RuntimeError LIXINGER_TOKEN 未配置"
+ ],
+ "acknowledged": {},
+ "config": {
+  "total_capital": 1850000,
+  "p1_code": "sh513050",
+  "p2_code": "sh512890",
+  "p3_code": "sh515180",
+  "sig_code": "000922",
+  "exit_ratio": 1.03,
+  "buy_tiers": [
+   0.96,
+   0.93,
+   0.9
+  ]
+ },
+ "state": {
+  "p1": {
+   "units": 134700.0,
+   "cash": 150224.62838147025,
+   "cost": 149786.4,
+   "dca_done": 0,
+   "last_dca_week": null,
+   "armed": false,
+   "exited": false,
+   "accel_fired": [],
+   "first_buy_date": "2026-08-17"
+  },
+  "p2": {
+   "units": 670400.0,
+   "cash": 17.60129215670471,
+   "cost": 774982.4
+  },
+  "p3": {
+   "units": 0.0,
+   "cash": 775056.8989468293,
+   "tier": 0,
+   "cost": 0.0
+  },
+  "switched": false,
+  "switch_date": null
+ },
+ "pending": [],
+ "metrics": {
+  "equity": 1853958.728620456,
+  "total_return": 0.0021398533083545335,
+  "cagr": null,
+  "max_drawdown": 0.0,
+  "days": 2,
+  "years": 0.00823045267489712
+ },
+ "triggers": [
+  {
+   "label": "第一份武装",
+   "cond": "本份总市值达 400000 元",
+   "short": "当前 300550 元，还差 33.1%",
+   "progress": 0.7513745709536758
+  },
+  {
+   "label": "网格第 1 档买入",
+   "cond": "中证红利跌破 5367.02（MA250 x 0.96）",
+   "short": "还需跌 3.03%",
+   "progress": 0.24961390179349097
+  }
+ ],
+ "recent_events": [],
+ "last_prices": {
+  "p1_px": 1.116,
+  "p2_px": 1.161,
+  "p3_px": 1.42,
+  "sig_px": 5534.83,
+  "pb_pct": null
+ },
+ "curve": [
+  {
+   "d": "2026-08-17",
+   "v": 1850269.4
+  },
+  {
+   "d": "2026-08-18",
+   "v": 1853958.73
+  }
+ ]
+}

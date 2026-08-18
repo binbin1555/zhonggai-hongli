@@ -1,0 +1,63 @@
+name: 确认已执行
+
+# 由看板网页调用（workflow_dispatch），把确认状态写入仓库以跨设备同步。
+# 输入经严格校验：只接受 ack:YYYY-MM-DD:动作:YYYY-MM-DD 格式，
+# 因此即使触发用的 token 泄露，攻击者也只能写入一个格式合法的确认记录。
+
+on:
+  workflow_dispatch:
+    inputs:
+      ack_key:
+        description: 'ack:数据日期:动作:执行日'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: confirm
+  cancel-in-progress: false
+
+jobs:
+  ack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 校验并写入
+        env:
+          ACK_KEY: ${{ github.event.inputs.ack_key }}
+        run: |
+          python - <<'PY'
+          import json, os, re, datetime, sys
+          k = (os.environ.get("ACK_KEY") or "").strip()
+          pat = r'^ack:\d{4}-\d{2}-\d{2}:(P1_DCA|P1_ACCEL|P1_EXIT|P3_TIER|SWITCH):\d{4}-\d{2}-\d{2}$'
+          if not re.match(pat, k):
+              print("拒绝：ack_key 格式非法 -> %r" % k[:80]); sys.exit(1)
+          p = "acknowledged.json"
+          d = {}
+          if os.path.exists(p):
+              try:
+                  d = json.load(open(p, encoding="utf-8"))
+              except Exception:
+                  d = {}
+          if len(d) > 500:
+              for old in sorted(d)[:len(d) - 400]:
+                  d.pop(old, None)
+          d[k] = datetime.datetime.utcnow().isoformat() + "Z"
+          json.dump(d, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+          print("已记录 %s（共 %d 条）" % (k, len(d)))
+          PY
+
+      - name: 提交
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add acknowledged.json
+          if git diff --staged --quiet; then
+            echo "无变化"
+          else
+            git commit -m "chore: 确认已执行"
+            git push
+          fi
