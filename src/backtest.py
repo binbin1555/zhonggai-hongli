@@ -261,6 +261,42 @@ def main():
 
     print()
     print("=" * 78)
+    print("十一、均线体检（停摆必须被发现，不能静默）")
+    print("=" * 78)
+    good = synth(cfg["start_date"], 400, flat1, flatsig)
+    hz = E.ma_health(good, cfg)
+    check("数据健全时两条均线都判为正常", all(x["ok"] for x in hz),
+          "；".join(x.get("msg", x["label"]) for x in hz))
+
+    short = synth(cfg["start_date"], 100, flat1, flatsig)
+    hz = E.ma_health(short, cfg)
+    check("历史不足 250 行 → 报警", len(hz) == 2 and not any(x["ok"] for x in hz),
+          hz[0].get("msg", "")[:46])
+
+    holed = [dict(r) for r in good]
+    holed[-30]["sig_px"] = None
+    hz = E.ma_health(holed, cfg)
+    g = [x for x in hz if "网格" in x["label"]][0]
+    check("信号序列有缺值 → 网格均线报警", not g["ok"], g.get("msg", "")[:46])
+    p1 = [x for x in hz if "第一份" in x["label"]][0]
+    check("缺值只影响对应的那条均线", p1["ok"], "第一份仍正常" if p1["ok"] else p1.get("msg", ""))
+
+    long_ = synth(cfg["start_date"], 800, [1.114] * 800, [5500.0] * 800)
+    thin = [r for i, r in enumerate(long_) if i % 3]   # 全程每三行丢一行
+    hz = E.ma_health(thin, cfg)
+    g = [x for x in hz if "网格" in x["label"]][0]
+    check("历史缺行导致窗口偏旧 → 报警", not g["ok"], g.get("msg", "")[:52])
+
+    # 停摆时 next_triggers 会静默丢掉观察点 —— 这正是要报警的原因
+    st, _ = E.run(good, cfg, base_state(cfg))
+    last = dict(holed[-1]); last["ma1"] = None; last["ma3"] = None
+    trg = E.next_triggers(st, cfg, last)
+    check("均线为空时观察点确会消失（故必须报警）",
+          not any("网格" in t["label"] for t in trg),
+          "剩余观察点 %d 个" % len(trg))
+
+    print()
+    print("=" * 78)
     print("验收结果：通过 %d 项，失败 %d 项" % (len(PASS), len(FAIL)))
     if FAIL:
         print("失败项：")

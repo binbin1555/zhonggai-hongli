@@ -410,3 +410,38 @@ def check_duplicates(events, window=3):
 
 def _days(ds):
     return date(*map(int, ds.split("-"))).toordinal()
+
+
+def ma_health(hist, cfg):
+    """体检两条 MA250 是否真的在监控。
+
+    next_triggers 遇到 MA 为 None 会静默跳过对应观察点 —— 看板看上去一切正常，
+    实际上那个信号已经停摆。历史里少几行不会让 MA 变 None，但会让窗口悄悄变旧，
+    所以跨度也一并检查。
+    """
+    out = []
+    n = len(hist)
+    specs = (("第一份止盈 MA%d", cfg["part1"]["ma_n"], "p1_px"),
+             ("红利网格 MA%d", cfg["part3"]["ma_n"], "sig_px"))
+    for label, k, key in specs:
+        xs = [h.get(key) for h in hist]
+        name = label % k
+        v = sma(xs, k, n - 1) if n else None
+        if v is None:
+            if n < k:
+                why = "历史仅 %d 行，需 %d 行" % (n, k)
+            else:
+                miss = [hist[i]["date"] for i in range(n - k, n) if xs[i] is None]
+                why = "窗口内 %d 天缺值（%s）" % (len(miss), "、".join(miss[:3]))
+            out.append({"ok": False, "label": name,
+                        "msg": "%s 不可用：%s —— 该信号当前未在监控" % (name, why)})
+            continue
+        span = (_d(hist[n - 1]["date"]) - _d(hist[n - k]["date"])).days
+        exp = k / float(TD_PER_YEAR) * 365.25
+        if span > exp * 1.15:
+            out.append({"ok": False, "label": name,
+                        "msg": "%s 窗口跨 %d 个自然日（正常约 %d）：历史缺行，均线偏旧"
+                               % (name, span, int(round(exp)))})
+        else:
+            out.append({"ok": True, "label": name, "value": v, "span": span})
+    return out

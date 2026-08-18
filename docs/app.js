@@ -43,6 +43,9 @@ function render(d){
       '，最新仍为 ' + esc(d.data_updated) + '</div>');
   }
 
+  (d.ma_warns || []).forEach(function(w){
+    h.push('<div class="warnbar">⚠️ 均线信号停摆：' + esc(w) + '</div>');
+  });
   (d.ledger_warns || []).forEach(function(w){
     h.push('<div class="warnbar">账本冲突：' + esc(w) + '</div>');
   });

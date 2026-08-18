@@ -106,6 +106,7 @@ def main():
     # ── 2. 从头重放 ────────────────────────────────────────────
     st = curve = met = trig = None
     ledger_warns = []
+    ma_warns = []
     try:
         rows = read_ledger()
         state0 = build_state(cfg, [r for r in rows if r["date"] <= cfg["start_date"]])
@@ -119,6 +120,12 @@ def main():
         last["ma1"] = E.sma(p1, cfg["part1"]["ma_n"], len(hist) - 1)
         last["ma3"] = E.sma(sig, cfg["part3"]["ma_n"], len(hist) - 1)
         trig = E.next_triggers(st, cfg, last)
+        for x in E.ma_health(hist, cfg):
+            if x["ok"]:
+                print("  OK   %s = %.4f（窗口跨 %d 天）" % (x["label"], x["value"], x["span"]))
+            else:
+                print("  WARN " + x["msg"])
+                ma_warns.append(x["msg"])
         for w in E.check_duplicates(st["events"]):
             print("  WARN 重复记账：" + w)
             ledger_warns.append(w)
@@ -141,6 +148,7 @@ def main():
         "log": log,
         "acknowledged": ack,
         "ledger_warns": ledger_warns,
+        "ma_warns": ma_warns,
         "config": {"total_capital": cfg["total_capital"],
                    "p1_code": cfg["part1"]["code"],
                    "p2_code": cfg["part2"]["code"],

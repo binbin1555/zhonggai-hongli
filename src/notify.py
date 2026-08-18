@@ -65,6 +65,11 @@ def build_body(cfg, out):
     px = out["last_prices"]
     lines = []
 
+    for w in (out.get("ma_warns") or []):
+        lines.append("⚠️ 均线停摆：" + w)
+    if out.get("ma_warns"):
+        lines.append("")
+
     pend = out.get("pending") or []
     if pend:
         p = pend[0]
@@ -114,6 +119,8 @@ def push_daily(cfg, out, force=False):
         return bark(cfg, "✅ 测试推送 · 配置正常",
                     "能看到这条，说明 BARK_KEY 与 Actions 全链路都通了。\n\n" + body,
                     level="timeSensitive")
+    if out.get("ma_warns"):
+        return bark(cfg, "🟡 均线信号停摆 · 需检查", body, level="timeSensitive")
     if pend:
         head = ACT_TEXT.get(pend[0]["action"], "需操作")
         return bark(cfg, "🔴 明日需操作 · %s" % head, body, level="timeSensitive")
