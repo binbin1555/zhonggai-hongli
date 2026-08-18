@@ -11,6 +11,7 @@ state.json / docs/data.json 都是**推导产物**，每次从头重算 —— �
 import datetime
 import json
 import os
+import time
 import sys
 
 import yaml
@@ -22,6 +23,7 @@ import engine as E          # noqa: E402
 import fetch as F           # noqa: E402
 import notify as N          # noqa: E402
 from init_state import build as build_state, read_ledger   # noqa: E402
+import dividends as DIV                                    # noqa: E402
 
 HIST = os.path.join(ROOT, "data", "history.json")
 STATE = os.path.join(ROOT, "state.json")
@@ -88,14 +90,32 @@ def main():
     stale_days = (today - datetime.date(*map(int, last_date.split("-")))).days
     stale = stale_days > int(cfg.get("alert_stale_days", 14))
 
+    # ── 1b. 分红表（每周刷一次即可）────────────────────────────
+    # 从头重放的架构下，晚几天发现某次分红不影响结果 ——
+    # 下次重放会按正确的除息日补记回去，自愈。
+    divs = DIV.load()
+    dpath = DIV.OUT
+    age = 999
+    if os.path.exists(dpath):
+        age = (time.time() - os.path.getmtime(dpath)) / 86400.0
+    if age > 7:
+        try:
+            res, dlog = DIV.collect(DIV.part_codes(cfg))
+            for line in dlog:
+                print("  " + line)
+            divs = DIV.save(res)
+        except Exception as e:                              # noqa: BLE001
+            print("  WARN 分红表刷新失败，沿用上次：%r" % (e,))
+
     # ── 2. 从头重放 ────────────────────────────────────────────
     st = curve = met = trig = None
+    ledger_warns = []
     try:
         rows = read_ledger()
         state0 = build_state(cfg, [r for r in rows if r["date"] <= cfg["start_date"]])
         state0["start_date"] = cfg["start_date"]
         later = [r for r in rows if r["date"] > cfg["start_date"]]
-        st, curve = E.run(hist, cfg, state0, injections=later)
+        st, curve = E.run(hist, cfg, state0, injections=later, divs=divs)
         met = E.metrics(curve, cfg["total_capital"])
         last = dict(hist[-1])
         p1 = [h["p1_px"] for h in hist]
@@ -103,6 +123,9 @@ def main():
         last["ma1"] = E.sma(p1, cfg["part1"]["ma_n"], len(hist) - 1)
         last["ma3"] = E.sma(sig, cfg["part3"]["ma_n"], len(hist) - 1)
         trig = E.next_triggers(st, cfg, last)
+        for w in E.check_duplicates(st["events"]):
+            print("  WARN 重复记账：" + w)
+            ledger_warns.append(w)
     except Exception as exc:                                 # noqa: BLE001
         import traceback
         traceback.print_exc()
@@ -121,6 +144,7 @@ def main():
         "added": added, "revised": revised, "skipped": skipped,
         "log": log,
         "acknowledged": ack,
+        "ledger_warns": ledger_warns,
         "config": {"total_capital": cfg["total_capital"],
                    "p1_code": cfg["part1"]["code"],
                    "p2_code": cfg["part2"]["code"],

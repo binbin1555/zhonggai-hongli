@@ -196,6 +196,71 @@ def main():
 
     print()
     print("=" * 78)
+    print("九、自动分红（取代手工记账）")
+    print("=" * 78)
+    HOLD = cfg["part3"]["hold_code"]
+    hist = synth(cfg["start_date"], 400, flat1, flatsig)
+    exd = hist[200]["date"]
+    divs = {HOLD: {exd: 0.0610}}
+
+    # 第三份先建仓：网格跌到第1档
+    sig2 = [5500.0] * 260 + [5500.0 * 0.95] * 140
+    h2 = synth(cfg["start_date"], 400, flat1, sig2)
+    ex2 = h2[330]["date"]
+    st, _ = E.run(h2, cfg, base_state(cfg), divs={HOLD: {ex2: 0.0610}})
+    dv = [e for e in st["events"] if e["action"] == "分红入账"]
+    check("持仓时除息日自动入账", len(dv) == 1, dv[0]["detail"] if dv else "未入账")
+    if dv:
+        units = float(dv[0]["detail"].split("x ")[1].split(" 份")[0])
+        amt = float(dv[0]["detail"].split("= ")[1].split(" 元")[0])
+        check("入账金额 = 持仓份数 x 每份派现",
+              abs(amt - units * 0.0610) < 0.1, "%.2f 元" % amt)
+
+    # 空仓时不入账
+    st, _ = E.run(hist, cfg, base_state(cfg), divs=divs)
+    dv0 = [e for e in st["events"] if e["action"] == "分红入账"]
+    check("空仓时除息日不入账", len(dv0) == 0, "产生了 %d 条" % len(dv0))
+
+    # ledger 已手记则不重复
+    inj = [{"date": ex2, "part": 3, "action": "dividend", "code": HOLD,
+            "shares": 0, "price": 0, "amount": 999.0, "note": "手记"}]
+    st, _ = E.run(h2, cfg, base_state(cfg), injections=inj,
+                  divs={HOLD: {ex2: 0.0610}})
+    dv2 = [e for e in st["events"] if e["action"] == "分红入账"]
+    check("ledger 已手记同日同份则不重复入账", len(dv2) == 1,
+          "共 %d 条：%s" % (len(dv2), [e["detail"][:24] for e in dv2]))
+
+    print()
+    print("=" * 78)
+    print("十、重复记账防护")
+    print("=" * 78)
+    stA, _ = E.run(hist, cfg, base_state(cfg))
+    dcaA = [e for e in stA["events"] if e["action"] == "定投买入"]
+    # 场景：把引擎已自动执行的每一次定投都「如实」抄进 ledger
+    dup = [{"date": e["date"], "part": 1, "action": "buy",
+            "code": cfg["part1"]["code"], "shares": 5179, "price": 1.114,
+            "amount": float(e["detail"].split("约 ")[1].split(" 元")[0]),
+            "note": "定投"} for e in dcaA]
+    stB, _ = E.run(hist, cfg, base_state(cfg), injections=dup)
+    w = E.check_duplicates(stB["events"])
+    check("ledger 重记引擎已执行的定投 → 报警", len(w) >= 1,
+          "检出 %d 条" % len(w))
+    check("重复记账会让现金穿负",
+          stB["p1"]["cash"] < -1000,
+          "现金 %.0f 元（正常应为 %.0f）" % (stB["p1"]["cash"], stA["p1"]["cash"]))
+    dcaB = [e for e in stB["events"] if e["action"] == "定投买入"]
+    check("重复记账会让后续定投被静默跳过",
+          len(dcaB) < len(dcaA),
+          "只完成 %d / %d 次" % (len(dcaB), len(dcaA)))
+    check("重复记账会虚增持仓",
+          stB["p1"]["units"] > stA["p1"]["units"] * 1.1,
+          "+%.0f 份 (+%.0f%%)" % (stB["p1"]["units"] - stA["p1"]["units"],
+                                  (stB["p1"]["units"] / stA["p1"]["units"] - 1) * 100))
+    clean = E.check_duplicates(stA["events"])
+    check("不记账本时无误报", len(clean) == 0, "误报 %d 条" % len(clean))
+
+    print()
+    print("=" * 78)
     print("验收结果：通过 %d 项，失败 %d 项" % (len(PASS), len(FAIL)))
     if FAIL:
         print("失败项：")

@@ -43,6 +43,10 @@ function render(d){
       '，最新仍为 ' + esc(d.data_updated) + '</div>');
   }
 
+  (d.ledger_warns || []).forEach(function(w){
+    h.push('<div class="warnbar">账本冲突：' + esc(w) + '</div>');
+  });
+
   var st = d.state, met = d.metrics || {}, px = d.last_prices || {};
   var pends = (d.pending || []).slice();
   var todo = pends.filter(function(p){ return !isAcked(d, p); });

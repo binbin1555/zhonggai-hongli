@@ -8,7 +8,8 @@
 执行     所有信号按【当日收盘价】判定，【次日收盘】执行（T+1）
 再平衡   三份之间不做再平衡
 闲置资金 按 cash_rate_annual 计息（货币ETF / 逆回购）
-分红     由 ledger.csv 手工记入，引擎将其并入对应份的现金池
+分红     由 dividends.py 自动抓取除息日与每份派现，引擎按当日持仓自动入账。
+         ledger.csv 里的 dividend 行仍然有效，且优先于自动入账（同日同份不重复计）。
 """
 from datetime import date
 
@@ -58,17 +59,24 @@ def new_state(cfg):
     }
 
 
-def run(hist, cfg, state0=None, injections=None):
+def run(hist, cfg, state0=None, injections=None, divs=None):
     """逐日重放。
 
     hist 每项需含：date, p1_px(513050), p2_px(512890), p3_px(515180),
                    sig_px(000922), pb_pct(创业板PB十年分位 0~1，可 None)
     injections: ledger 中晚于 start_date 的流水（分红、人工修正），按日期注入。
+    divs: {代码: {除息日: 每份派现}}，见 dividends.py。按当日持仓自动入账。
     返回 (state, curve)
     """
     inj = {}
     for r in (injections or []):
         inj.setdefault(r["date"], []).append(r)
+
+    # 分红表按「份」重排；第三份持仓是 ETF 而非信号指数，取 hold_code
+    divs = divs or {}
+    part_div = {1: divs.get(cfg["part1"]["code"], {}),
+                2: divs.get(cfg["part2"]["code"], {}),
+                3: divs.get(cfg["part3"]["hold_code"], {})}
     c1, c3 = cfg["part1"], cfg["part3"]
     n = len(hist)
     dates = [h["date"] for h in hist]
@@ -111,6 +119,18 @@ def run(hist, cfg, state0=None, injections=None):
                 h["units"] -= r["shares"]; h["cash"] += amt
                 h["cost"] = max(0.0, h["cost"] - amt)
                 ev(d, r["part"], "手工卖出", r["note"] or "ledger 记录")
+
+        # 0b. 分红自动入账（同日同份若 ledger 已手记，跳过以免重复）
+        manual_div = {r["part"] for r in inj.get(d, [])
+                      if r["action"] == "dividend"}
+        for pi, h in ((1, A), (2, B), (3, C)):
+            per = part_div[pi].get(d)
+            if not per or pi in manual_div or h["units"] <= 0:
+                continue
+            amt = h["units"] * per
+            h["cash"] += amt
+            ev(d, pi, "分红入账",
+               "每份 %.4f 元 x %.0f 份 = %.2f 元，自动并入现金池" % (per, h["units"], amt))
 
         # 1. 现金计息（持仓市值由 units*price 直接算，无需逐日更新）
         if i > start_i:
@@ -357,3 +377,36 @@ def next_triggers(st, cfg, last):
 
     out.sort(key=lambda x: -x["progress"])
     return out
+
+
+AUTO_BUY = ("定投买入", "加速买入", "网格买入")
+AUTO_SELL = ("止盈清仓", "网格清仓", "切换")
+
+
+def check_duplicates(events, window=3):
+    """检出 ledger 手工流水与引擎自动动作的疑似重复记账。
+
+    引擎自己会模拟每一次定投/加码/网格成交。若你「如实」把同一笔又记进
+    ledger.csv，持仓会翻倍、现金会穿负 —— 这是本系统最容易犯的错。
+    ledger 只该记「和系统说的不一样」的部分。
+    """
+    warns = []
+    auto = [e for e in events if e["action"] in AUTO_BUY + AUTO_SELL]
+    for e in events:
+        if e["action"] not in ("手工买入", "手工卖出"):
+            continue
+        side = AUTO_BUY if e["action"] == "手工买入" else AUTO_SELL
+        for a in auto:
+            if a["part"] != e["part"] or a["action"] not in side:
+                continue
+            if abs(_days(a["date"]) - _days(e["date"])) <= window:
+                warns.append(
+                    "%s 第%d份：ledger 记了「%s」，但引擎同期已自动执行「%s」(%s)。"
+                    "若这是同一笔成交，会被重复计算，请从 ledger.csv 删除该行。"
+                    % (e["date"], e["part"], e["action"], a["action"], a["date"]))
+                break
+    return warns
+
+
+def _days(ds):
+    return date(*map(int, ds.split("-"))).toordinal()
