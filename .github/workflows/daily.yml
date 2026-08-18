@@ -1,5 +1,7 @@
 name: 每日监测
 
+# 触发方式：cron-job.org 每天北京时间 21:14 调用 workflow_dispatch。
+# 不再使用 GitHub 自带 schedule —— 两者时间接近会导致每天重复推送两条。
 on:
   workflow_dispatch:
     inputs:
@@ -7,8 +9,6 @@ on:
         description: 强制测试推送（非交易日也发）
         required: false
         default: 'false'
-  schedule:
-    - cron: '20 13 * * 1-5'   # UTC 13:20 = 北京 21:20（备用，主触发用 cron-job.org）
 
 permissions:
   contents: write
