@@ -8,6 +8,7 @@ cash_rate_annual: 0.018         # 闲置资金年化（货币ETF/逆回购）
 
 part1:                          # 第一份 · 中概互联
   code: "sh513050"
+  name: "中概互联ETF"            # 看板与推送里的显示名
   capital: 300000
   lump_sum: 150000              # 已一次性买入
   ammo: 150000                  # 待定投弹药
@@ -23,11 +24,13 @@ part1:                          # 第一份 · 中概互联
 
 part2:                          # 第二份 · 红利低波（买入持有，不操作）
   code: "sh512890"
+  name: "红利低波ETF"
   capital: 775000
 
 part3:                          # 第三份 · 中证红利网格
   signal_code: "000922"         # 信号：中证红利指数
   hold_code: "sh515180"         # 标的：中证红利ETF
+  name: "中证红利ETF"
   capital: 775000
   ma_n: 250
   buy_tiers: [0.96, 0.93, 0.90] # 跌破 MA250×t 各买1/3

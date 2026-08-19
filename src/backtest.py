@@ -64,7 +64,7 @@ def main():
     flatsig = [5500.0] * N          # 恒定 → MA250 恒等于自身，网格不触发
     hist = synth(cfg["start_date"], N, flat1, flatsig)
     st, curve = E.run(hist, cfg, base_state(cfg))
-    dca = [e for e in st["events"] if e["action"] == "定投买入"]
+    dca = [e for e in st["events"] if e["action"] == "中概定投买入"]
     check("定投总次数 = 26", len(dca) == c1["dca_weeks"], "实际 %d 次" % len(dca))
     if dca:
         wd = {datetime.date(*map(int, e["date"].split("-"))).weekday() for e in dca}
@@ -83,44 +83,44 @@ def main():
 
     print()
     print("=" * 78)
-    print("二、加速条款（浮亏 15% 投一半，25% 投剩余）")
+    print("二、加码条款（浮亏 15% 投一半，25% 投剩余）")
     print("=" * 78)
     drop = [1.114 * (1 - 0.30 * min(1.0, i / 60.0)) for i in range(N)]
     hist = synth(cfg["start_date"], N, drop, flatsig)
     st, _ = E.run(hist, cfg, base_state(cfg))
-    ac = [e for e in st["events"] if e["action"] == "加速买入"]
-    check("加速至少触发 1 次", len(ac) >= 1, "实际 %d 次" % len(ac))
+    ac = [e for e in st["events"] if e["action"] == "中概加码买入"]
+    check("加码至少触发 1 次", len(ac) >= 1, "实际 %d 次" % len(ac))
     print("       注：浮亏以【持仓加权成本】为基准，定投会持续拉低成本，")
     print("           因此第二档(-25%)在持续下跌中未必触发 —— 这是文档规则的必然结果。")
-    check("加速后弹药耗尽", abs(st["p1"]["cash"]) < 1.0,
+    check("加码后弹药耗尽", abs(st["p1"]["cash"]) < 1.0,
           "剩余 %.2f" % st["p1"]["cash"])
 
     print()
     print("=" * 78)
-    print("三、武装与止盈")
+    print("三、开启止盈保护与止盈清仓")
     print("=" * 78)
     up = [1.114 * (1 + 0.60 * min(1.0, i / 100.0)) for i in range(300)]
     down = [up[-1] * (1 - 0.45 * min(1.0, (i) / 200.0)) for i in range(N - 300)]
     hist = synth(cfg["start_date"], N, up + down, flatsig)
     st, _ = E.run(hist, cfg, base_state(cfg))
-    arm = [e for e in st["events"] if e["action"] == "武装"]
-    ext = [e for e in st["events"] if e["action"] == "止盈清仓"]
-    check("触发武装", len(arm) == 1, arm[0]["detail"] if arm else "未触发")
-    check("武装后触发止盈", len(ext) == 1, ext[0]["date"] if ext else "未触发")
+    arm = [e for e in st["events"] if e["action"] == "中概开启止盈保护"]
+    ext = [e for e in st["events"] if e["action"] == "中概止盈清仓"]
+    check("触发开启止盈保护", len(arm) == 1, arm[0]["detail"] if arm else "未触发")
+    check("开启保护后触发止盈", len(ext) == 1, ext[0]["date"] if ext else "未触发")
     check("止盈后第一份清空", st["p1"]["units"] == 0 and st["p1"]["cash"] == 0)
     check("止盈资金转入第三份", st["p3"]["cash"] > cfg["part3"]["capital"],
           "第三份现金 %.0f" % st["p3"]["cash"])
     if arm and ext:
-        check("先武装后止盈", arm[0]["date"] < ext[0]["date"])
+        check("先开启保护、后止盈", arm[0]["date"] < ext[0]["date"])
 
     print()
     print("=" * 78)
-    print("四、兜底武装（满 3 年未达 40 万）")
+    print("四、兜底开启止盈保护（满 3 年未达 40 万）")
     print("=" * 78)
     hist = synth(cfg["start_date"], 800, [1.114] * 800, [5500.0] * 800)
     st, _ = E.run(hist, cfg, base_state(cfg))
-    to = [e for e in st["events"] if e["action"] == "兜底武装"]
-    check("满 3 年触发兜底武装", len(to) == 1, to[0]["date"] if to else "未触发（样本不足3年时正常）")
+    to = [e for e in st["events"] if e["action"] == "中概开启止盈保护（满3年兜底）"]
+    check("满 3 年兜底开启止盈保护", len(to) == 1, to[0]["date"] if to else "未触发（样本不足3年时正常）")
 
     print()
     print("=" * 78)
@@ -133,8 +133,8 @@ def main():
     hist = synth(cfg["start_date"], N, flat1, sig)
     st, _ = E.run(hist, cfg, base_state(cfg))
     g = [e for e in st["events"] if e["part"] == 3]
-    buys = [e for e in g if e["action"] == "网格买入"]
-    sells = [e for e in g if e["action"] == "网格清仓"]
+    buys = [e for e in g if e["action"] == "红利网格买入"]
+    sells = [e for e in g if e["action"] == "红利网格清仓"]
     check("三档依次触发", len(buys) == 3, "实际 %d 档" % len(buys))
     check("触发后清仓一次", len(sells) == 1, sells[0]["date"] if sells else "未清仓")
     check("清仓后回到空仓", st["p3"]["units"] == 0 and st["p3"]["tier"] == 0)
@@ -157,7 +157,7 @@ def main():
     pb = [0.775] * 300 + [0.19] * (N - 300)
     hist = synth(cfg["start_date"], N, flat1, flatsig, pb=pb)
     st, _ = E.run(hist, cfg, base_state(cfg))
-    sw = [e for e in st["events"] if e["action"] == "切换"]
+    sw = [e for e in st["events"] if e["action"] == "切换至创业板策略"]
     check("PB 跌破阈值触发切换", len(sw) == 1, sw[0]["date"] if sw else "未触发")
     check("切换后三份全部清空",
           st["p1"]["units"] == 0 and st["p2"]["units"] == 0 and st["p3"]["units"] == 0)
@@ -175,7 +175,7 @@ def main():
     dts = [h["date"] for h in hist]
     ok = True
     for e in st["events"]:
-        if e["action"] in ("网格买入", "网格清仓"):
+        if e["action"] in ("红利网格买入", "红利网格清仓"):
             i = dts.index(e["date"])
             if i == 0:
                 ok = False
@@ -235,7 +235,7 @@ def main():
     print("十、重复记账防护")
     print("=" * 78)
     stA, _ = E.run(hist, cfg, base_state(cfg))
-    dcaA = [e for e in stA["events"] if e["action"] == "定投买入"]
+    dcaA = [e for e in stA["events"] if e["action"] == "中概定投买入"]
     # 场景：把引擎已自动执行的每一次定投都「如实」抄进 ledger
     dup = [{"date": e["date"], "part": 1, "action": "buy",
             "code": cfg["part1"]["code"], "shares": 5179, "price": 1.114,
@@ -248,7 +248,7 @@ def main():
     check("重复记账会让现金穿负",
           stB["p1"]["cash"] < -1000,
           "现金 %.0f 元（正常应为 %.0f）" % (stB["p1"]["cash"], stA["p1"]["cash"]))
-    dcaB = [e for e in stB["events"] if e["action"] == "定投买入"]
+    dcaB = [e for e in stB["events"] if e["action"] == "中概定投买入"]
     check("重复记账会让后续定投被静默跳过",
           len(dcaB) < len(dcaA),
           "只完成 %d / %d 次" % (len(dcaB), len(dcaA)))
@@ -362,9 +362,9 @@ def main():
 
     # 状态里程碑必须有通知横幅
     st, _ = E.run(scen[4][1], cfg, base_state(cfg))
-    arm = [e for e in st["events"] if e["action"] in ("武装", "兜底武装")]
+    arm = [e for e in st["events"] if e["action"] in ("中概开启止盈保护", "中概开启止盈保护（满3年兜底）")]
     nt = E.build_notices(st, scen[4][1][-1]["date"], 3650)
-    check("武装事件会生成通知横幅", len(arm) >= 1 and len(nt) >= 1,
+    check("开启止盈保护会生成通知横幅", len(arm) >= 1 and len(nt) >= 1,
           nt[0]["label"] if nt else "无通知")
     check("通知横幅的 key 稳定（可持久确认）",
           bool(nt) and nt[0]["key"].startswith("note:"),
@@ -491,7 +491,7 @@ def main():
               % (calls[0][1] if calls else "—", lvl))
         calls.clear()
         NT.push_daily(cfg, dict(quiet_out, triggers=[
-            {"label": "网格第 1 档买入", "cond": "中证红利跌破 5365.01",
+            {"label": "红利网格 · 第 1 档买入", "cond": "中证红利跌破 5365.01",
              "short": "还需跌 1.22%", "dist": 1.22, "unit": "%",
              "near": True, "progress": 0.7}]))
         check("临近时标题升级且级别提到 timeSensitive",
@@ -527,14 +527,14 @@ def main():
         l2 = dict(hh[-1])
         l2["ma1"] = E.sma([h["p1_px"] for h in hh], 250, len(hh) - 1)
         l2["ma3"] = E.sma([h["sig_px"] for h in hh], 250, len(hh) - 1)
-        g = [t for t in E.next_triggers(st2, cfg, l2) if "网格第" in t["label"]]
+        g = [t for t in E.next_triggers(st2, cfg, l2) if "红利网格 · 第" in t["label"]]
         got = bool(g and g[0]["near"])
         check("临近判定 %s（阈值 %.1f%%）" % (nm, thr), got == want,
               "还需跌 %.2f%% → near=%s" % (g[0]["dist"] if g else -1, got))
 
     # 临近时推送标题升级
     out = {"data_updated": "2026-09-01", "pending": [], "triggers":
-           [{"label": "网格第 1 档买入", "cond": "中证红利跌破 5365.01",
+           [{"label": "红利网格 · 第 1 档买入", "cond": "中证红利跌破 5365.01",
              "short": "还需跌 1.22%", "dist": 1.22, "unit": "%",
              "near": True, "progress": 0.7}],
            "state": {"p1": st["p1"], "p2": st["p2"], "p3": st["p3"],
@@ -558,6 +558,68 @@ def main():
     css = open(os.path.join(ROOT, "docs", "style.css"), encoding="utf-8").read()
     check("临近横幅有独立样式（虚线框，区别于待办实线）",
           ".nearbar" in css and "dashed" in css.split(".nearbar")[1][:200], "")
+
+    print()
+    print("=" * 78)
+    print("十六、用词：不留黑话、每条都写明是哪只标的")
+    print("=" * 78)
+    JARGON = ("武装", "本份", "第一份", "第二份", "第三份", "弹药", "P1_", "P3_")
+    hh = synth(cfg["start_date"], 700,
+               [1.114 * (1 + 0.75 * min(1.0, i / 200.0)) if i < 300
+                else 1.114 * 1.75 * (1 - 0.35 * min(1.0, (i - 300) / 200.0))
+                for i in range(700)],
+               [5500.0] * 300 + [5500.0 * 0.88] * 200 + [5500.0 * 1.10] * 200,
+               pb=[0.775] * 650 + [0.19] * 50)
+    st, curve = E.run(hh, cfg, base_state(cfg))
+    texts = []
+    for e in st["events"]:
+        texts.append(("事件动作", e["action"]))
+        texts.append(("事件说明", e["detail"]))
+    for nt in E.build_notices(st, hh[-1]["date"], 3650):
+        texts.append(("通知标题", nt["label"]))
+        texts.append(("通知说明", nt["detail"]))
+    last = dict(hh[-1])
+    last["ma1"] = E.sma([x["p1_px"] for x in hh], 250, len(hh) - 1)
+    last["ma3"] = E.sma([x["sig_px"] for x in hh], 250, len(hh) - 1)
+    for t in E.next_triggers(st, cfg, last):
+        texts.append(("观察点标签", t["label"]))
+        texts.append(("观察点条件", t["cond"]))
+    for code, hx, tier in (
+            ("P1_DCA", synth(cfg["start_date"], 40, flat1, flatsig), None),
+            ("P3_TIER", synth(cfg["start_date"], 400, flat1,
+                              [5500.0] * 300 + [5500.0 * 0.94] * 100), 1)):
+        for cut in range(2, len(hx) + 1):
+            s2, _ = E.run(hx[:cut], cfg, base_state(cfg))
+            hit = [q for q in s2["pending"]
+                   if q["action"] == code and (tier is None or q.get("tier") == tier)]
+            if hit:
+                texts.append(("指令标题", hit[0]["label"]))
+                texts.append(("指令说明", hit[0]["detail"]))
+                break
+    bad = [(k, v) for k, v in texts if any(j in v for j in JARGON)]
+    check("面向用户的文字里没有黑话/内部编号", not bad,
+          "；".join("%s「%s」" % (k, v[:26]) for k, v in bad[:3]) or
+          "共检查 %d 条" % len(texts))
+
+    codes = (cfg["part1"]["code"][2:], cfg["part3"]["hold_code"][2:])
+    naked = [v for k, v in texts
+             if k.endswith("说明") and ("sh5" in v or "sz" in v)]
+    check("说明里不出现裸代码（应写成「中概互联ETF(513050)」）", not naked,
+          naked[0][:40] if naked else "")
+
+    lbl = [v for k, v in texts if k in ("指令标题", "观察点标签", "通知标题")]
+    unnamed = [v for v in lbl
+               if not any(n in v for n in ("中概", "红利", "三份", "策略A"))]
+    check("每条标题都点明哪一份/哪只标的", not unnamed,
+          "；".join(unnamed[:3]) or "共 %d 条标题" % len(lbl))
+
+    check("配置里给每份都写了显示名",
+          all(cfg[k].get("name") for k in ("part1", "part2", "part3")),
+          "／".join(str(cfg[k].get("name")) for k in ("part1", "part2", "part3")))
+    check("show() 渲染为「名称(代码)」",
+          E.show(cfg["part1"]) == "中概互联ETF(513050)", E.show(cfg["part1"]))
+    check("配置缺 name 时退回代码，不崩",
+          E.show({"code": "sh999999"}) == "sh999999", E.show({"code": "sh999999"}))
 
     print()
     print("=" * 78)

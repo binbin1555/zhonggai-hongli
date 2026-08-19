@@ -34,6 +34,14 @@ def _week_key(s):
     return "%d-W%02d" % (iso[0], iso[1])
 
 
+def show(part_cfg, code_key="code"):
+    """标的的可读写法，如「中概互联ETF(513050)」。配置没写 name 就退回代码。"""
+    code = part_cfg.get(code_key) or ""
+    nm = part_cfg.get("name")
+    num = code[2:] if code[:2] in ("sh", "sz") else code
+    return "%s(%s)" % (nm, num) if nm else code
+
+
 def sma(xs, n, i):
     """xs[i] 的 n 日均值；数据不足或含缺失返回 None。"""
     if i < n - 1:
@@ -155,8 +163,8 @@ def run(hist, cfg, state0=None, injections=None, divs=None):
                     A["dca_done"] += 1
                     if A["first_buy_date"] is None:
                         A["first_buy_date"] = d
-                    ev(d, 1, "定投买入", "买入 %s 约 %.0f 元（第 %d/%d 次）"
-                       % (c1["code"], amt, A["dca_done"], c1["dca_weeks"]))
+                    ev(d, 1, "中概定投买入", "买入 %s 约 %.0f 元（第 %d/%d 次）"
+                       % (show(c1), amt, A["dca_done"], c1["dca_weeks"]))
 
             elif act == "P1_ACCEL":
                 amt = min(pd_["amount"], A["cash"])
@@ -164,15 +172,16 @@ def run(hist, cfg, state0=None, injections=None, divs=None):
                     A["units"] += amt / p1[i]
                     A["cash"] -= amt
                     A["cost"] += amt
-                    ev(d, 1, "加速买入", "浮亏触发，投入 %.0f 元" % amt)
+                    ev(d, 1, "中概加码买入", "浮亏触发，投入 %.0f 元" % amt)
 
             elif act == "P1_EXIT":
                 if A["units"] and p1[i]:
                     proceeds = A["units"] * p1[i]
                     moved = proceeds + A["cash"]
                     C["cash"] += moved
-                    ev(d, 1, "止盈清仓",
-                       "卖出全部 %s，%.0f 元转入第三份" % (c1["code"], moved))
+                    ev(d, 1, "中概止盈清仓",
+                       "卖出全部 %s，%.0f 元转入红利网格那份"
+                       % (show(c1), moved))
                     A["units"] = 0.0
                     A["cash"] = 0.0
                     A["exited"] = True
@@ -195,7 +204,7 @@ def run(hist, cfg, state0=None, injections=None, divs=None):
                         C["cost"] = C["cost"] * (tgt / cur) if cur > 0 else 0.0
                 old = C["tier"]
                 C["tier"] = want
-                ev(d, 3, "网格清仓" if want == 0 else "网格买入",
+                ev(d, 3, "红利网格清仓" if want == 0 else "红利网格买入",
                    ("涨过 MA250x%.2f，三档全部清空" % c3["exit_ratio"]) if want == 0
                    else ("买入至 %d/3 仓（原 %d/3）" % (want, old)))
 
@@ -211,7 +220,7 @@ def run(hist, cfg, state0=None, injections=None, divs=None):
                 C["cash"] = tot
                 st["switched"] = True
                 st["switch_date"] = d
-                ev(d, 0, "切换",
+                ev(d, 0, "切换至创业板策略",
                    "创业板PB分位<=%.0f%%，策略A全部清仓，转执行创业板手册策略"
                    % (cfg["switch"]["pb_percentile_threshold"] * 100))
 
@@ -236,8 +245,8 @@ def run(hist, cfg, state0=None, injections=None, divs=None):
             if not has("SWITCH"):
                 st["pending"].append({"action": "SWITCH", "exec_date": nxt or d,
                                       "part": 0,
-                                      "label": "全部清仓 · 转创业板策略",
-                                      "detail": "三份全部清仓，之后执行创业板手册"})
+                                      "label": "三份全部清仓 · 转创业板策略",
+                                      "detail": "中概、红利低波、红利网格全部卖出，之后执行创业板手册"})
             continue
 
         # 5. 第一份 · 中概互联
@@ -246,22 +255,26 @@ def run(hist, cfg, state0=None, injections=None, divs=None):
 
             if not A["armed"] and v1_now >= c1["arm_target"]:
                 A["armed"] = True
-                ev(d, 1, "武装", "本份总市值达 %.0f 元，止盈检测启动" % v1_now)
+                ev(d, 1, "中概开启止盈保护",
+                   "中概这份市值达 %.0f 元，从今天起开始盯 MA250 止盈信号" % v1_now)
 
             if not A["armed"]:
                 base = A["first_buy_date"] or st["start_date"]
                 if (_d(d) - _d(base)).days >= c1["arm_timeout_years"] * 365:
                     A["armed"] = True
-                    ev(d, 1, "兜底武装", "建仓满 %d 年未武装，视同武装"
+                    ev(d, 1, "中概开启止盈保护（满3年兜底）",
+                       "建仓满 %d 年市值仍未达标，按规则强制开始盯止盈"
                        % c1["arm_timeout_years"])
 
             if (A["armed"] and A["units"] > 0 and ma1[i] and p1[i]
                     and p1[i] < ma1[i] and not has("P1_EXIT")):
                 st["pending"].append({"action": "P1_EXIT", "exec_date": nxt or d,
                                       "part": 1,
-                                      "label": "清仓 中概互联ETF",
-                                      "detail": "武装后跌破 MA250，全部卖出 %s 约 %.0f 元"
-                                                % (c1["code"], A["units"] * (p1[i] or 0))})
+                                      "label": "中概互联 · 止盈清仓",
+                                      "detail": "已开启止盈保护且跌破 MA250，"
+                                                "全部卖出 %s 约 %.0f 元"
+                                                % (show(c1),
+                                                   A["units"] * (p1[i] or 0))})
 
             elif A["cash"] > 1 and A["cost"] > 0 and p1[i] and not has("P1_ACCEL"):
                 fp = A["units"] * p1[i] / A["cost"] - 1
@@ -274,7 +287,7 @@ def run(hist, cfg, state0=None, injections=None, divs=None):
                         st["pending"].append(
                             {"action": "P1_ACCEL", "exec_date": nxt or d,
                              "part": 1, "amount": amt,
-                             "label": "加码 中概互联ETF",
+                             "label": "中概互联 · 加码买入",
                              "detail": "浮亏 %.1f%%，投入约 %.0f 元"
                                        % (abs(fp) * 100, amt)})
                         break
@@ -294,10 +307,10 @@ def run(hist, cfg, state0=None, injections=None, divs=None):
                     per = min(c1["ammo"] / c1["dca_weeks"], A["cash"])
                     st["pending"].append({"action": "P1_DCA", "exec_date": nxt,
                                           "part": 1, "amount": per,
-                                          "label": "买入 中概互联ETF",
+                                          "label": "中概互联 · 定投买入",
                                           "detail": "第 %d/%d 次定投，买入 %s 约 %.0f 元"
                                                     % (A["dca_done"] + 1, c1["dca_weeks"],
-                                                       c1["code"], per)})
+                                                       show(c1), per)})
 
         # 6. 第三份 · 中证红利网格
         if ma3[i] and sig[i] and not has("P3_TIER"):
@@ -311,13 +324,14 @@ def run(hist, cfg, state0=None, injections=None, divs=None):
                 tgt3 = (cur3 + C["cash"]) * want / 3.0
                 delta = tgt3 - cur3
                 if want == 0:
-                    lab = "清仓 中证红利ETF"
+                    lab = "红利网格 · 全部清仓"
                     det = ("清空网格三档，全部卖出 %s，约 %.0f 元"
-                           % (c3["hold_code"], cur3))
+                           % (show(c3, "hold_code"), cur3))
                 else:
-                    lab = "买入 中证红利ETF"
+                    lab = "红利网格 · 买入"
                     det = ("买入至 %d/3 仓（原 %d/3），本次买入 %s 约 %.0f 元"
-                           % (want, C["tier"], c3["hold_code"], max(0.0, delta)))
+                           % (want, C["tier"], show(c3, "hold_code"),
+                              max(0.0, delta)))
                 st["pending"].append({"action": "P3_TIER", "exec_date": nxt or d,
                                       "part": 3, "tier": want,
                                       "label": lab, "amount": delta,
@@ -357,15 +371,16 @@ def next_triggers(st, cfg, last):
     A, C = st["p1"], st["p3"]
 
     if st["switched"]:
-        return [{"label": "策略A已停机", "cond": "已切换至创业板手册策略",
+        return [{"label": "策略A已停机", "cond": "已全部清仓，改执行创业板手册策略",
                  "short": "—", "dist": 0.0, "unit": "%", "near": False,
                  "progress": 1.0}]
 
     pb = last.get("pb_pct")
     if pb is not None:
         thr = cfg["switch"]["pb_percentile_threshold"]
-        out.append({"label": "切换创业板策略",
-                    "cond": "创业板PB十年分位 <= %.0f%%" % (thr * 100),
+        out.append({"label": "三份全部清仓 · 转创业板策略",
+                    "cond": "创业板PB十年分位跌到 %.0f%% 以下（触发后策略A停机）"
+                            % (thr * 100),
                     "short": "当前 %.1f%%" % (pb * 100),
                     "dist": (pb - thr) * 100, "unit": "pp",
                     "near": (pb - thr) * 100 <= near_pb,
@@ -374,8 +389,9 @@ def next_triggers(st, cfg, last):
     if not A["exited"]:
         v1 = A["units"] * (last["p1_px"] or 0) + A["cash"]
         if not A["armed"]:
-            out.append({"label": "第一份武装",
-                        "cond": "本份总市值达 %.0f 元" % c1["arm_target"],
+            out.append({"label": "中概互联 · 开启止盈保护",
+                        "cond": "这份市值涨到 %.0f 元后，才开始盯止盈信号（现在还不盯）"
+                                % c1["arm_target"],
                         "short": "当前 %.0f 元，还差 %.1f%%"
                                  % (v1, (c1["arm_target"] / v1 - 1) * 100 if v1 else 0),
                         "dist": (c1["arm_target"] / v1 - 1) * 100 if v1 else 999,
@@ -385,8 +401,9 @@ def next_triggers(st, cfg, last):
                         "progress": min(1.0, v1 / c1["arm_target"])})
         elif last.get("ma1") and last["p1_px"]:
             buf = last["p1_px"] / last["ma1"] - 1
-            out.append({"label": "第一份止盈",
-                        "cond": "跌破 MA250 %.4f" % last["ma1"],
+            out.append({"label": "中概互联 · 止盈清仓",
+                        "cond": "已在盯止盈：跌破 MA250 %.4f 就全部卖出"
+                                % last["ma1"],
                         "short": "尚有 %.2f%% 缓冲" % (buf * 100),
                         "dist": buf * 100, "unit": "%",
                         "near": buf * 100 <= near_px,
@@ -398,7 +415,7 @@ def next_triggers(st, cfg, last):
         if C["tier"] < 3:
             t = c3["buy_tiers"][C["tier"]]
             need = (ma * t / last["sig_px"] - 1) * 100
-            out.append({"label": "网格第 %d 档买入" % (C["tier"] + 1),
+            out.append({"label": "红利网格 · 第 %d 档买入" % (C["tier"] + 1),
                         "cond": "中证红利跌破 %.2f（MA250 x %.2f）" % (ma * t, t),
                         "short": "还需跌 %.2f%%" % abs(need),
                         "dist": abs(need), "unit": "%",
@@ -407,7 +424,7 @@ def next_triggers(st, cfg, last):
         if C["tier"] > 0:
             er = c3["exit_ratio"]
             need = (ma * er / last["sig_px"] - 1) * 100
-            out.append({"label": "网格清仓",
+            out.append({"label": "红利网格 · 全部清仓",
                         "cond": "中证红利涨过 %.2f（MA250 x %.2f）" % (ma * er, er),
                         "short": "还需涨 %.2f%%" % need,
                         "dist": abs(need), "unit": "%",
@@ -418,8 +435,8 @@ def next_triggers(st, cfg, last):
     return out
 
 
-AUTO_BUY = ("定投买入", "加速买入", "网格买入")
-AUTO_SELL = ("止盈清仓", "网格清仓", "切换")
+AUTO_BUY = ("中概定投买入", "中概加码买入", "红利网格买入")
+AUTO_SELL = ("中概止盈清仓", "红利网格清仓", "切换至创业板策略")
 
 
 def check_duplicates(events, window=3):
@@ -488,8 +505,12 @@ def ma_health(hist, cfg):
 
 # 这几类事件不需要你下单，但会改变系统之后的行为，必须让你看见。
 NOTICE = {
-    "武装":   ("止盈规则已启动", "从今天起，跌破 MA250 就会提示清仓中概互联"),
-    "兜底武装": ("止盈规则已启动（满3年兜底）", "未达 40 万但已满 3 年，按规则强制启动止盈检测"),
+    "中概开启止盈保护": (
+        "中概互联 · 已开启止盈保护",
+        "浮盈够了，从今天起开始盯 MA250：一旦跌破就提示你全部卖出锁定收益"),
+    "中概开启止盈保护（满3年兜底）": (
+        "中概互联 · 已开启止盈保护（满3年兜底）",
+        "市值没到 40 万但持有已满 3 年，按规则强制开始盯 MA250"),
     "分红入账": ("分红已到账", None),
 }
 

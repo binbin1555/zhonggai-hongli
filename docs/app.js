@@ -8,14 +8,14 @@ var GH_OWNER = '';        // 例：binbin1555
 var GH_REPO  = 'zhonggai-hongli';
 var GH_TOKEN = '';        // 细粒度 PAT，仅 Actions:write。留空则不同步
 
+// 兜底标题。正常情况下每条 pending 自带 label，这里只在旧数据上生效。
 var ACT = {
-  P1_DCA:   '买入 中概互联ETF',
-  P1_ACCEL: '加码 中概互联ETF',
-  P1_EXIT:  '清仓 中概互联ETF',
-  P3_TIER:  '调整 中证红利ETF',
-  SWITCH:   '全部清仓 · 转创业板策略'
+  P1_DCA:   '中概互联 · 定投买入',
+  P1_ACCEL: '中概互联 · 加码买入',
+  P1_EXIT:  '中概互联 · 止盈清仓',
+  P3_TIER:  '红利网格 · 调整仓位',
+  SWITCH:   '三份全部清仓 · 转创业板策略'
 };
-var PARTNAME = { 1: '中概互联', 2: '红利低波', 3: '红利网格' };
 
 function money(v){ return (v==null||isNaN(v)) ? '—' : Math.round(v).toLocaleString('zh-CN'); }
 function pct(v,d){ if(v==null||isNaN(v)) return '—';
@@ -130,7 +130,7 @@ function render(d){
     h.push('<div class="card"><h2>资产分布</h2>' +
       part('① 中概互联 ' + d.config.p1_code.replace('sh',''), v1, tot,
            '持仓 ' + money(st.p1.units*px.p1_px) + ' ／ 现金 ' + money(st.p1.cash) +
-           (st.p1.exited ? ' ／ 已止盈' : (st.p1.armed ? ' ／ 已武装' : ''))) +
+           (st.p1.exited ? ' ／ 已止盈退出' : (st.p1.armed ? ' ／ 止盈保护中' : ''))) +
       part('② 红利低波 ' + d.config.p2_code.replace('sh',''), v2, tot, '满仓持有') +
       part('③ 红利网格 ' + d.config.p3_code.replace('sh',''), v3, tot,
            st.p3.tier + '/3 仓 ／ 现金 ' + money(st.p3.cash)) +
@@ -155,9 +155,9 @@ function render(d){
   /* ── 近期事件 ── */
   if(d.recent_events && d.recent_events.length){
     var e = d.recent_events.slice().reverse().slice(0,8).map(function(x){
+      // 动作名已自带标的（如「中概定投买入」），不再重复前缀份名
       return '<div class="ev"><b>' + esc(x.date) + '</b> · ' +
-        esc(PARTNAME[x.part] || '全局') + ' · ' + esc(x.action) + '<br>' +
-        esc(x.detail) + '</div>';
+        esc(x.action) + '<br>' + esc(x.detail) + '</div>';
     }).join('');
     h.push('<div class="card"><h2>近期事件</h2>' + e + '</div>');
   }

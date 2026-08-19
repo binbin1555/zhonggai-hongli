@@ -17,12 +17,13 @@ BARK_KEY = (os.environ.get("BARK_KEY") or "").strip()
 BARK_HOST = ((os.environ.get("BARK_HOST") or "").strip()
              or "https://api.day.app").rstrip("/")
 
+# 兜底标题。正常情况下每条 pending 自带 label。
 ACT_TEXT = {
-    "P1_DCA": "买入 中概互联ETF（定投）",
-    "P1_ACCEL": "买入 中概互联ETF（加速）",
-    "P1_EXIT": "清仓 中概互联ETF",
-    "P3_TIER": "调整 中证红利ETF 仓位",
-    "SWITCH": "全部清仓，转创业板手册策略",
+    "P1_DCA": "中概互联 · 定投买入",
+    "P1_ACCEL": "中概互联 · 加码买入",
+    "P1_EXIT": "中概互联 · 止盈清仓",
+    "P3_TIER": "红利网格 · 调整仓位",
+    "SWITCH": "三份全部清仓 · 转创业板策略",
 }
 
 
@@ -102,7 +103,8 @@ def build_body(cfg, out):
     if pend:
         p = pend[0]
         when = p["exec_date"]
-        lines.append("【今日指令】%s 收盘执行：%s" % (when, ACT_TEXT.get(p["action"], p["action"])))
+        lines.append("【今日指令】%s 收盘执行：%s"
+                     % (when, p.get("label") or ACT_TEXT.get(p["action"], p["action"])))
         lines.append("　" + p.get("detail", ""))
     else:
         lines.append("【今日指令】不操作，继续持有")
@@ -111,11 +113,12 @@ def build_body(cfg, out):
     v1 = st["p1"]["units"] * px["p1_px"] + st["p1"]["cash"]
     v2 = st["p2"]["units"] * px["p2_px"] + st["p2"]["cash"]
     v3 = st["p3"]["units"] * px["p3_px"] + st["p3"]["cash"]
-    lines.append("① 中概互联 %s（持仓 %s / 现金 %s）"
+    lines.append("① 中概互联 %s（持仓 %s ／ 待投现金 %s）"
                  % (_money(v1), _money(st["p1"]["units"] * px["p1_px"]),
                     _money(st["p1"]["cash"])))
-    lines.append("② 红利低波 %s" % _money(v2))
-    lines.append("③ 红利网格 %s（%d/3 仓）" % (_money(v3), st["p3"]["tier"]))
+    lines.append("② 红利低波 %s（满仓持有，不操作）" % _money(v2))
+    lines.append("③ 红利网格 %s（%d/3 仓，其余为待投现金）"
+                 % (_money(v3), st["p3"]["tier"]))
     lines.append("")
     lines.append("总资产 %s（%s）" % (_money(met.get("equity", 0)),
                                      _pct(met.get("total_return"))))
@@ -164,7 +167,7 @@ def push_daily(cfg, out, force=False):
     if out.get("ma_warns"):
         return bark(cfg, "🟡 均线信号停摆 · 需检查", body, level="timeSensitive")
     if pend:
-        head = ACT_TEXT.get(pend[0]["action"], "需操作")
+        head = pend[0].get("label") or ACT_TEXT.get(pend[0]["action"], "需操作")
         return bark(cfg, "🔴 明日需操作 · %s" % head, body, level="timeSensitive")
     if acted:
         title = "🟠 今日已执行 · " + "／".join(e["action"] for e in acted)
