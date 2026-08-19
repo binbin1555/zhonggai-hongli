@@ -107,6 +107,7 @@ def main():
     st = curve = met = trig = None
     ledger_warns = []
     ma_warns = []
+    notices = []
     try:
         rows = read_ledger()
         state0 = build_state(cfg, [r for r in rows if r["date"] <= cfg["start_date"]])
@@ -120,6 +121,8 @@ def main():
         last["ma1"] = E.sma(p1, cfg["part1"]["ma_n"], len(hist) - 1)
         last["ma3"] = E.sma(sig, cfg["part3"]["ma_n"], len(hist) - 1)
         trig = E.next_triggers(st, cfg, last)
+        notices = E.build_notices(st, last_date,
+                                  int(cfg.get("notice_days", 14)))
         for x in E.ma_health(hist, cfg):
             if x["ok"]:
                 print("  OK   %s = %.4f（窗口跨 %d 天）" % (x["label"], x["value"], x["span"]))
@@ -149,6 +152,7 @@ def main():
         "acknowledged": ack,
         "ledger_warns": ledger_warns,
         "ma_warns": ma_warns,
+        "notices": notices,
         "config": {"total_capital": cfg["total_capital"],
                    "p1_code": cfg["part1"]["code"],
                    "p2_code": cfg["part2"]["code"],

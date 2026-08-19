@@ -4,6 +4,7 @@
   --warn-bg:#fdf0d5; --warn-ink:#7a4d06; --warn-line:#e8c98a;
   --done-bg:#e8f3e4; --done-ink:#2f5d1c;
   --up:#c0392b; --down:#1e8449;
+  --note-bg:#e8eef7; --note-ink:#1f3d66; --note-line:#a9c0e0;
 }
 @media (prefers-color-scheme:dark){
   :root{
@@ -11,6 +12,7 @@
     --line:rgba(255,255,255,.10);
     --warn-bg:#3a2c10; --warn-ink:#f6c96b; --warn-line:#6b5320;
     --done-bg:#1d2f18; --done-ink:#9fd68a;
+    --note-bg:#16233a; --note-ink:#9dbdea; --note-line:#2c4a71;
   }
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -26,6 +28,9 @@ body{
 .banner.act{background:var(--warn-bg);border-color:var(--warn-line)}
 .banner.idle{background:var(--card);border-color:var(--line)}
 .banner.done{background:var(--done-bg)}
+.banner.note{background:var(--note-bg);border-color:var(--note-line)}
+.banner.note .kicker,.banner.note .big,.banner.note .sub,.banner.note .why{color:var(--note-ink)}
+.banner.note button.ack{border-color:var(--note-line);color:var(--note-ink)}
 .banner .kicker{font-size:12px;letter-spacing:.04em;margin-bottom:8px;opacity:.85}
 .banner .big{font-size:30px;line-height:1.25;font-weight:600;letter-spacing:-.01em}
 .banner.act .kicker,.banner.act .big,.banner.act .sub{color:var(--warn-ink)}

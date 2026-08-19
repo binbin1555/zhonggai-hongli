@@ -236,7 +236,8 @@ def run(hist, cfg, state0=None, injections=None, divs=None):
             if not has("SWITCH"):
                 st["pending"].append({"action": "SWITCH", "exec_date": nxt or d,
                                       "part": 0,
-                                      "detail": "全部清仓，转创业板手册策略"})
+                                      "label": "全部清仓 · 转创业板策略",
+                                      "detail": "三份全部清仓，之后执行创业板手册"})
             continue
 
         # 5. 第一份 · 中概互联
@@ -258,7 +259,9 @@ def run(hist, cfg, state0=None, injections=None, divs=None):
                     and p1[i] < ma1[i] and not has("P1_EXIT")):
                 st["pending"].append({"action": "P1_EXIT", "exec_date": nxt or d,
                                       "part": 1,
-                                      "detail": "全部卖出 %s" % c1["code"]})
+                                      "label": "清仓 中概互联ETF",
+                                      "detail": "武装后跌破 MA250，全部卖出 %s 约 %.0f 元"
+                                                % (c1["code"], A["units"] * (p1[i] or 0))})
 
             elif A["cash"] > 1 and A["cost"] > 0 and p1[i] and not has("P1_ACCEL"):
                 fp = A["units"] * p1[i] / A["cost"] - 1
@@ -271,7 +274,9 @@ def run(hist, cfg, state0=None, injections=None, divs=None):
                         st["pending"].append(
                             {"action": "P1_ACCEL", "exec_date": nxt or d,
                              "part": 1, "amount": amt,
-                             "detail": "浮亏 %.1f%%，投入 %.0f 元" % (fp * 100, amt)})
+                             "label": "加码 中概互联ETF",
+                             "detail": "浮亏 %.1f%%，投入约 %.0f 元"
+                                       % (abs(fp) * 100, amt)})
                         break
 
             # 定投：目标在每周指定星期几（config 的 dca_weekday，周一=0）。
@@ -289,8 +294,10 @@ def run(hist, cfg, state0=None, injections=None, divs=None):
                     per = min(c1["ammo"] / c1["dca_weeks"], A["cash"])
                     st["pending"].append({"action": "P1_DCA", "exec_date": nxt,
                                           "part": 1, "amount": per,
-                                          "detail": "定投买入 %s 约 %.0f 元"
-                                                    % (c1["code"], per)})
+                                          "label": "买入 中概互联ETF",
+                                          "detail": "第 %d/%d 次定投，买入 %s 约 %.0f 元"
+                                                    % (A["dca_done"] + 1, c1["dca_weeks"],
+                                                       c1["code"], per)})
 
         # 6. 第三份 · 中证红利网格
         if ma3[i] and sig[i] and not has("P3_TIER"):
@@ -300,10 +307,21 @@ def run(hist, cfg, state0=None, injections=None, divs=None):
             else:
                 want = max(C["tier"], sum(1 for t in c3["buy_tiers"] if r <= t))
             if want != C["tier"]:
+                cur3 = C["units"] * (p3[i] or 0)
+                tgt3 = (cur3 + C["cash"]) * want / 3.0
+                delta = tgt3 - cur3
+                if want == 0:
+                    lab = "清仓 中证红利ETF"
+                    det = ("清空网格三档，全部卖出 %s，约 %.0f 元"
+                           % (c3["hold_code"], cur3))
+                else:
+                    lab = "买入 中证红利ETF"
+                    det = ("买入至 %d/3 仓（原 %d/3），本次买入 %s 约 %.0f 元"
+                           % (want, C["tier"], c3["hold_code"], max(0.0, delta)))
                 st["pending"].append({"action": "P3_TIER", "exec_date": nxt or d,
                                       "part": 3, "tier": want,
-                                      "detail": ("清空网格" if want == 0
-                                                 else "买入至 %d/3 仓" % want)})
+                                      "label": lab, "amount": delta,
+                                      "detail": det})
 
     return st, curve
 
@@ -444,4 +462,32 @@ def ma_health(hist, cfg):
                                % (name, span, int(round(exp)))})
         else:
             out.append({"ok": True, "label": name, "value": v, "span": span})
+    return out
+
+
+# 这几类事件不需要你下单，但会改变系统之后的行为，必须让你看见。
+NOTICE = {
+    "武装":   ("止盈规则已启动", "从今天起，跌破 MA250 就会提示清仓中概互联"),
+    "兜底武装": ("止盈规则已启动（满3年兜底）", "未达 40 万但已满 3 年，按规则强制启动止盈检测"),
+    "分红入账": ("分红已到账", None),
+}
+
+
+def build_notices(st, last_date, days=14):
+    """状态里程碑与分红，做成通知横幅。
+
+    这些不是待办指令（没有单要下），但漏看会让你误判系统状态，
+    所以同样占一条横幅、同样要点确认才消失。保留 days 天。
+    """
+    cutoff = date.fromordinal(_d(last_date).toordinal() - days).isoformat()
+    out = []
+    for e in st["events"]:
+        if e["date"] < cutoff or e["action"] not in NOTICE:
+            continue
+        title, sub = NOTICE[e["action"]]
+        out.append({"key": "note:%s:%s" % (e["date"], e["action"]),
+                    "date": e["date"], "part": e.get("part", 0),
+                    "label": title,
+                    "detail": e["detail"] if sub is None else sub,
+                    "extra": e["detail"] if sub is not None else ""})
     return out

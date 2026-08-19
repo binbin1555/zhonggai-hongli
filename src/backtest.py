@@ -297,6 +297,81 @@ def main():
 
     print()
     print("=" * 78)
+    print("十二、横幅覆盖：每种信号都要有正确提示")
+    print("=" * 78)
+    import re as _re
+    src = open(os.path.join(ROOT, "src", "engine.py"), encoding="utf-8").read()
+    codes = set(_re.findall(r'"action": "([A-Z0-9_]+)"', src))
+    check("引擎共产生 5 种指令码", len(codes) == 5, "、".join(sorted(codes)))
+
+    appjs = open(os.path.join(ROOT, "docs", "app.js"), encoding="utf-8").read()
+    ntfy = open(os.path.join(ROOT, "src", "notify.py"), encoding="utf-8").read()
+    conf = open(os.path.join(ROOT, ".github", "workflows", "confirm.yml"),
+                encoding="utf-8").read()
+    miss_a = [c for c in codes if ("%s:" % c) not in appjs]
+    miss_n = [c for c in codes if ('"%s"' % c) not in ntfy]
+    miss_c = [c for c in codes if c not in conf]
+    check("看板 ACT 映射无遗漏", not miss_a, "缺 %s" % miss_a)
+    check("Bark ACT_TEXT 映射无遗漏", not miss_n, "缺 %s" % miss_n)
+    check("确认校验正则无遗漏", not miss_c, "缺 %s" % miss_c)
+
+    # 逐一造出每种 pending，检查 label 与金额
+    seen = {}
+    scen = [
+        ("P1_DCA", synth(cfg["start_date"], 40, flat1, flatsig), None),
+        ("P1_ACCEL", synth(cfg["start_date"], 60,
+                           [1.114 * (1 - 0.30 * min(1.0, i / 20.0)) for i in range(60)],
+                           flatsig), None),
+        ("P3_TIER", synth(cfg["start_date"], 400, flat1,
+                          [5500.0] * 300 + [5500.0 * 0.94] * 100), 1),
+        ("P3_TIER", synth(cfg["start_date"], 500, flat1,
+                          [5500.0] * 300 + [5500.0 * 0.88] * 100 + [5500.0 * 1.10] * 100), 0),
+        ("P1_EXIT", synth(cfg["start_date"], 700,
+                          [1.114 * (1 + 0.75 * min(1.0, i / 200.0)) if i < 300
+                           else 1.114 * 1.75 * (1 - 0.35 * min(1.0, (i - 300) / 200.0))
+                           for i in range(700)], flatsig), None),
+        ("SWITCH", synth(cfg["start_date"], 40, flat1, flatsig,
+                         pb=[0.775] * 10 + [0.19] * 30), None),
+    ]
+    for code, hh, tier in scen:
+        for cut in range(2, len(hh) + 1):
+            st, _ = E.run(hh[:cut], cfg, base_state(cfg))
+            hit = [q for q in st["pending"]
+                   if q["action"] == code and (tier is None or q.get("tier") == tier)]
+            if hit:
+                seen[(code, tier)] = hit[0]
+                break
+    check("六种指令场景全部能造出 pending", len(seen) == 6,
+          "造出 %d 种：%s" % (len(seen), sorted(k[0] for k in seen)))
+    nolabel = [k for k, v in seen.items() if not v.get("label")]
+    check("每条 pending 都自带 label（不靠动作码猜标题）", not nolabel,
+          "缺 label：%s" % nolabel)
+    labels = [v["label"] for v in seen.values()]
+    check("网格买入与清仓标题不同（清仓不可写成「调整」）",
+          seen.get(("P3_TIER", 1), {}).get("label")
+          != seen.get(("P3_TIER", 0), {}).get("label"),
+          "买=%s ／ 卖=%s" % (seen.get(("P3_TIER", 1), {}).get("label"),
+                             seen.get(("P3_TIER", 0), {}).get("label")))
+    check("六条标题两两不重复", len(set(labels)) == len(labels),
+          "；".join(labels))
+    nomoney = [k[0] for k, v in seen.items()
+               if k[0] != "SWITCH" and "元" not in v.get("detail", "")]
+    check("除切换外每条副标题都带金额", not nomoney, "缺金额：%s" % nomoney)
+    badsign = [v["detail"] for v in seen.values() if "浮亏 -" in v.get("detail", "")]
+    check("浮亏不带负号（避免双重否定）", not badsign, badsign[:1])
+
+    # 状态里程碑必须有通知横幅
+    st, _ = E.run(scen[4][1], cfg, base_state(cfg))
+    arm = [e for e in st["events"] if e["action"] in ("武装", "兜底武装")]
+    nt = E.build_notices(st, scen[4][1][-1]["date"], 3650)
+    check("武装事件会生成通知横幅", len(arm) >= 1 and len(nt) >= 1,
+          nt[0]["label"] if nt else "无通知")
+    check("通知横幅的 key 稳定（可持久确认）",
+          bool(nt) and nt[0]["key"].startswith("note:"),
+          nt[0]["key"] if nt else "")
+
+    print()
+    print("=" * 78)
     print("验收结果：通过 %d 项，失败 %d 项" % (len(PASS), len(FAIL)))
     if FAIL:
         print("失败项：")

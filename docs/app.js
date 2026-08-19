@@ -78,7 +78,7 @@ function render(d){
       h.push('<div class="banner ' + (done ? 'done' : 'act') + '" data-i="' + i + '">' +
         '<div class="kicker">' + seq +
           (done ? '已确认执行' : ('今日指令 · ' + esc(p.exec_date) + ' 收盘执行')) + '</div>' +
-        '<div class="big">' + esc(ACT[p.action] || p.action) + '</div>' +
+        '<div class="big">' + esc(p.label || ACT[p.action] || p.action) + '</div>' +
         '<div class="sub">' + esc(p.detail || '') + '</div>' +
         (done ? '' :
           '<div class="why">限价委托 · 避开开盘与尾盘五分钟</div>' +
@@ -87,6 +87,17 @@ function render(d){
         ) + '</div>');
     });
   }
+
+  /* ── 通知横幅：不需下单，但改变了系统行为 ── */
+  (d.notices || []).forEach(function(nt, i){
+    if (localStorage.getItem(nt.key)) return;
+    h.push('<div class="banner note" data-n="' + i + '">' +
+      '<div class="kicker">' + esc(nt.date) + ' · 状态变化</div>' +
+      '<div class="big">' + esc(nt.label) + '</div>' +
+      '<div class="sub">' + esc(nt.detail) + '</div>' +
+      (nt.extra ? '<div class="why">' + esc(nt.extra) + '</div>' : '') +
+      '<button class="ack" data-note="' + i + '">知道了</button></div>');
+  });
 
   /* ── 收益 ── */
   h.push('<div class="card"><h2>收益</h2>' +
@@ -144,6 +155,14 @@ function render(d){
       var p = (d.pending || [])[+btn.getAttribute('data-ack')];
       var k = ackKey(d, p); if(!k) return;
       localStorage.setItem(k, new Date().toISOString());
+      render(d);
+    };
+  });
+  Array.prototype.forEach.call(app.querySelectorAll('[data-note]'), function(btn){
+    btn.onclick = function(){
+      var nt = (d.notices || [])[+btn.getAttribute('data-note')];
+      if (!nt) return;
+      localStorage.setItem(nt.key, new Date().toISOString());
       render(d);
     };
   });
