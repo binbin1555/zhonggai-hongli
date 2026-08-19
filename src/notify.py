@@ -94,9 +94,12 @@ def build_body(cfg, out):
     px = out["last_prices"]
     lines = []
 
-    for w in (out.get("ma_warns") or []):
-        lines.append("⚠️ 均线停摆：" + w)
-    if out.get("ma_warns"):
+    crit = [x for x in (out.get("health") or []) if x["level"] == "critical"]
+    for x in crit:
+        lines.append("⛔ %s" % x["title"])
+        lines.append("　" + x["what"])
+        for k, t in enumerate(x.get("todo") or [], 1):
+            lines.append("　%d. %s" % (k, t))
         lines.append("")
 
     pend = out.get("pending") or []
@@ -164,8 +167,10 @@ def push_daily(cfg, out, force=False):
         return bark(cfg, "✅ 测试推送 · 配置正常",
                     "能看到这条，说明 BARK_KEY 与 Actions 全链路都通了。\n\n" + body,
                     level="timeSensitive")
-    if out.get("ma_warns"):
-        return bark(cfg, "🟡 均线信号停摆 · 需检查", body, level="timeSensitive")
+    crit = [x for x in (out.get("health") or []) if x["level"] == "critical"]
+    if crit:
+        return bark(cfg, "⛔ 需要你处理 · %s" % crit[0]["title"], body,
+                    level="timeSensitive")
     if pend:
         head = pend[0].get("label") or ACT_TEXT.get(pend[0]["action"], "需操作")
         return bark(cfg, "🔴 明日需操作 · %s" % head, body, level="timeSensitive")

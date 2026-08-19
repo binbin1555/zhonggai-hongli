@@ -4,6 +4,7 @@
   --warn-bg:#fdf0d5; --warn-ink:#7a4d06; --warn-line:#e8c98a;
   --done-bg:#e8f3e4; --done-ink:#2f5d1c;
   --up:#c0392b; --down:#1e8449;
+  --crit-bg:#fdeceb; --crit-ink:#8c1d18; --crit-line:#e5a29d;
   --note-bg:#e8eef7; --note-ink:#1f3d66; --note-line:#a9c0e0;
 }
 @media (prefers-color-scheme:dark){
@@ -13,6 +14,7 @@
     --warn-bg:#3a2c10; --warn-ink:#f6c96b; --warn-line:#6b5320;
     --done-bg:#1d2f18; --done-ink:#9fd68a;
     --note-bg:#16233a; --note-ink:#9dbdea; --note-line:#2c4a71;
+    --crit-bg:#3a1614; --crit-ink:#f2a6a0; --crit-line:#6e2b26;
   }
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -111,3 +113,15 @@ button.ack.sync{margin-top:8px;opacity:.72;font-size:13px;padding:10px}
 .pbar{height:3px;border-radius:2px;background:var(--line);margin-top:6px;overflow:hidden}
 .pbar>i{display:block;height:100%;background:var(--ink3);border-radius:2px}
 .trig.near .pbar>i{background:var(--warn-ink)}
+
+/* 故障横幅：永远置顶，红=必须动手，黄=可以先观察 */
+.prob{border-radius:14px;padding:16px;margin-bottom:14px;border:2px solid}
+.prob.crit{background:var(--crit-bg);border-color:var(--crit-line);color:var(--crit-ink)}
+.prob.warn{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn-ink)}
+.prob .p-h{font-size:12px;font-weight:700;letter-spacing:.06em;margin-bottom:8px;opacity:.9}
+.prob .p-t{font-size:19px;font-weight:600;line-height:1.35;letter-spacing:-.01em}
+.prob .p-w{font-size:14px;line-height:1.6;margin-top:8px;opacity:.92}
+.prob .p-s{font-size:12px;font-weight:700;letter-spacing:.04em;margin-top:14px;opacity:.75}
+.prob ol{margin:6px 0 0;padding-left:22px}
+.prob ol li{font-size:14px;line-height:1.65;margin:5px 0}
+.prob ol li::marker{font-weight:600}

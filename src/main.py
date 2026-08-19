@@ -124,12 +124,20 @@ def main():
     ledger_warns = []
     ma_warns = []
     notices = []
+    health = []
+    split_hits = []
     try:
         rows = read_ledger()
         state0 = build_state(cfg, [r for r in rows if r["date"] <= cfg["start_date"]])
         state0["start_date"] = cfg["start_date"]
         later = [r for r in rows if r["date"] > cfg["start_date"]]
-        st, curve = E.run(hist, cfg, state0, injections=later, divs=divs)
+        frozen, split_hits = E.detect_splits(hist, cfg)
+        if split_hits:
+            for x in split_hits:
+                print("  WARN 疑似份额折算：%s %s %.4f→%.4f (%+.1f%%)"
+                      % (x["date"], x["name"], x["prev"], x["now"],
+                         x["change"] * 100))
+        st, curve = E.run(hist, cfg, state0, injections=later, divs=divs, frozen=frozen)
         met = E.metrics(curve, cfg["total_capital"])
         last = dict(hist[-1])
         p1 = [h["p1_px"] for h in hist]
@@ -148,6 +156,13 @@ def main():
         for w in E.check_duplicates(st["events"]):
             print("  WARN 重复记账：" + w)
             ledger_warns.append(w)
+        health = E.build_health(
+            hist, cfg, st, E.ma_health(hist, cfg), ledger_warns, split_hits,
+            divs_age=DIV.age_days(), skipped=skipped, fetch_ok=fetch_ok,
+            stale_days=stale_days)
+        for x in health:
+            print("  %s %s" % ("!!" if x["level"] == "critical" else "??",
+                               x["title"]))
     except Exception as exc:                                 # noqa: BLE001
         import traceback
         traceback.print_exc()
@@ -168,6 +183,7 @@ def main():
         "acknowledged": ack,
         "ledger_warns": ledger_warns,
         "ma_warns": ma_warns,
+        "health": health,
         "notices": notices,
         "config": {"total_capital": cfg["total_capital"],
                    "p1_code": cfg["part1"]["code"],

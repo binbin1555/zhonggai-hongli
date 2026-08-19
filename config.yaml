@@ -50,3 +50,8 @@ near_alert:                    # 临近触发提醒：进入区间后推送标�
 
 heartbeat_days: 6              # 超过此天数没出过声就主动推一条心跳（长假期间也能证明系统还活着）
 page_url: "https://binbin1555.github.io/zhonggai-hongli/"   # Bark 推送点击跳转
+repo_url: "https://github.com/binbin1555/zhonggai-hongli"   # 故障提示里指路用
+resolved_splits: []            # 已确认并处理完的份额折算日期，如 ["2027-03-15"]。写进来才解除冻结
+
+pb_blind_days: 5               # PB 连续断供超此天数即判定切换条款失明
+divs_stale_days: 60            # 分红表超此天数未刷新即提醒

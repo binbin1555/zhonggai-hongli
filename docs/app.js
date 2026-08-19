@@ -24,12 +24,46 @@ function cls(v){ return v>0?'up':(v<0?'down':''); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }); }
 
+var LS_OK = (function(){
+  try { localStorage.setItem('__t','1'); localStorage.removeItem('__t'); return true; }
+  catch(e){ return false; }
+})();
+function lsGet(k){ try { return LS_OK && localStorage.getItem(k); } catch(e){ return null; } }
+function lsSet(k,v){ try { if(LS_OK) localStorage.setItem(k,v); } catch(e){} }
+
+/* 页面自查：流水线一旦停摆，data.json 会永远停在最后一次的值，
+   里面的 stale_days 也是那天算好写死的。只有在浏览器里拿当前时间
+   去比 generated_at，才能发现「系统已经不跑了」。 */
+function selfCheck(d){
+  var out = [];
+  if(!LS_OK){
+    out.push({level:'warn', title:'浏览器禁用了本地存储',
+      what:'「我已执行」的确认状态无法保存，每次刷新都会重新出现。系统运行不受影响。',
+      todo:['若在无痕/隐私模式下，换普通窗口打开','或在浏览器设置里允许本站存储数据']});
+  }
+  var g = String(d.generated_at||'').replace(' ','T');
+  var t = Date.parse(g);
+  if(!isNaN(t)){
+    var days = Math.floor((Date.now()-t)/86400000);
+    if(days >= 3){
+      out.push({level:'critical', title:'系统已停止运行 '+days+' 天',
+        what:'页面最后一次更新是 '+esc(d.generated_at)+'。流水线每天都该跑，'
+             +'停这么久说明定时触发或 Actions 出了问题。下面所有数字都是那天的旧值。',
+        todo:['打开 cron-job.org，看这个任务的执行历史里最近一次是什么时候、返回什么',
+              '打开 GitHub 仓库的 Actions 页，看有没有失败的运行记录',
+              '若 Actions 有报错，点进去看日志末尾',
+              '若 cron-job 没在触发，检查它的 GitHub token 是否过期']});
+    }
+  }
+  return out;
+}
+
 function ackKey(d, p){
   return p ? ('ack:' + d.data_updated + ':' + p.action + ':' + p.exec_date) : null;
 }
 function isAcked(d, p){
   var k = ackKey(d, p); if(!k) return false;
-  if(localStorage.getItem(k)) return true;
+  if(lsGet(k)) return true;
   return !!(d.acknowledged && d.acknowledged[k]);
 }
 
@@ -37,17 +71,17 @@ function render(d){
   var app = document.getElementById('app');
   var h = [];
 
-  if(!d.fetch_ok || d.stale_days > 14){
-    h.push('<div class="warnbar">数据异常：' +
-      (d.fetch_ok ? ('已停滞 ' + d.stale_days + ' 天') : '数据源不可达') +
-      '，最新仍为 ' + esc(d.data_updated) + '</div>');
-  }
-
-  (d.ma_warns || []).forEach(function(w){
-    h.push('<div class="warnbar">⚠️ 均线信号停摆：' + esc(w) + '</div>');
-  });
-  (d.ledger_warns || []).forEach(function(w){
-    h.push('<div class="warnbar">账本冲突：' + esc(w) + '</div>');
+  /* ── 故障：永远置顶，且必须写清楚该做什么 ── */
+  var probs = selfCheck(d).concat(d.health || []);
+  probs.sort(function(a,b){ return (a.level==='critical'?0:1) - (b.level==='critical'?0:1); });
+  probs.forEach(function(x){
+    h.push('<div class="prob ' + (x.level==='critical'?'crit':'warn') + '">' +
+      '<div class="p-h">' + (x.level==='critical'?'⛔ 需要你处理':'⚠️ 请留意') + '</div>' +
+      '<div class="p-t">' + esc(x.title) + '</div>' +
+      '<div class="p-w">' + esc(x.what) + '</div>' +
+      '<div class="p-s">该怎么办</div><ol>' +
+      (x.todo||[]).map(function(s){ return '<li>' + esc(s) + '</li>'; }).join('') +
+      '</ol></div>');
   });
 
   var st = d.state, met = d.metrics || {}, px = d.last_prices || {};
@@ -103,7 +137,7 @@ function render(d){
 
   /* ── 通知横幅：不需下单，但改变了系统行为 ── */
   (d.notices || []).forEach(function(nt, i){
-    if (localStorage.getItem(nt.key)) return;
+    if (lsGet(nt.key)) return;
     h.push('<div class="banner note" data-n="' + i + '">' +
       '<div class="kicker">' + esc(nt.date) + ' · 状态变化</div>' +
       '<div class="big">' + esc(nt.label) + '</div>' +
@@ -172,7 +206,7 @@ function render(d){
     btn.onclick = function(){
       var p = (d.pending || [])[+btn.getAttribute('data-ack')];
       var k = ackKey(d, p); if(!k) return;
-      localStorage.setItem(k, new Date().toISOString());
+      lsSet(k, new Date().toISOString());
       render(d);
     };
   });
@@ -180,7 +214,7 @@ function render(d){
     btn.onclick = function(){
       var nt = (d.notices || [])[+btn.getAttribute('data-note')];
       if (!nt) return;
-      localStorage.setItem(nt.key, new Date().toISOString());
+      lsSet(nt.key, new Date().toISOString());
       render(d);
     };
   });

@@ -67,15 +67,18 @@ def new_state(cfg):
     }
 
 
-def run(hist, cfg, state0=None, injections=None, divs=None):
+def run(hist, cfg, state0=None, injections=None, divs=None, frozen=()):
     """逐日重放。
 
     hist 每项需含：date, p1_px(513050), p2_px(512890), p3_px(515180),
                    sig_px(000922), pb_pct(创业板PB十年分位 0~1，可 None)
     injections: ledger 中晚于 start_date 的流水（分红、人工修正），按日期注入。
     divs: {代码: {除息日: 每份派现}}，见 dividends.py。按当日持仓自动入账。
+    frozen: 数据被判定污染的份号集合。这些份只停发新指令，不改变已有持仓
+            —— 拿被折算污染的价格去算浮亏并下单，才是真正的规则偏离。
     返回 (state, curve)
     """
+    frozen = set(frozen or ())
     inj = {}
     for r in (injections or []):
         inj.setdefault(r["date"], []).append(r)
@@ -266,8 +269,11 @@ def run(hist, cfg, state0=None, injections=None, divs=None):
                        "建仓满 %d 年市值仍未达标，按规则强制开始盯止盈"
                        % c1["arm_timeout_years"])
 
-            if (A["armed"] and A["units"] > 0 and ma1[i] and p1[i]
-                    and p1[i] < ma1[i] and not has("P1_EXIT")):
+            # 折算污染的是「现价 vs 历史基准」的比较（成本、MA250），
+            # 所以只掐掉止盈与加码；定投是日历规则、按固定金额买当天真实价格，
+            # 不受影响，继续照常执行。
+            if (1 not in frozen and A["armed"] and A["units"] > 0 and ma1[i]
+                    and p1[i] and p1[i] < ma1[i] and not has("P1_EXIT")):
                 st["pending"].append({"action": "P1_EXIT", "exec_date": nxt or d,
                                       "part": 1,
                                       "label": "中概互联 · 止盈清仓",
@@ -276,7 +282,8 @@ def run(hist, cfg, state0=None, injections=None, divs=None):
                                                 % (show(c1),
                                                    A["units"] * (p1[i] or 0))})
 
-            elif A["cash"] > 1 and A["cost"] > 0 and p1[i] and not has("P1_ACCEL"):
+            elif (1 not in frozen and A["cash"] > 1 and A["cost"] > 0
+                    and p1[i] and not has("P1_ACCEL")):
                 fp = A["units"] * p1[i] / A["cost"] - 1
                 for k, rule in enumerate(c1["accel"]):
                     if k in A["accel_fired"]:
@@ -313,7 +320,7 @@ def run(hist, cfg, state0=None, injections=None, divs=None):
                                                        show(c1), per)})
 
         # 6. 第三份 · 中证红利网格
-        if ma3[i] and sig[i] and not has("P3_TIER"):
+        if ma3[i] and sig[i] and not has("P3_TIER") and 3 not in frozen:
             r = sig[i] / ma3[i]
             if C["tier"] > 0 and r >= c3["exit_ratio"]:
                 want = 0
@@ -532,4 +539,147 @@ def build_notices(st, last_date, days=14):
                     "label": title,
                     "detail": e["detail"] if sub is None else sub,
                     "extra": e["detail"] if sub is not None else ""})
+    return out
+
+
+# ── 数据污染防线 ────────────────────────────────────────────
+# A股 ETF 单日涨跌停是 10%（跨境 ETF 亦然）。超过这个幅度的跳变不可能是行情，
+# 只可能是份额折算、拆并份额或数据源出错。512890 在 2021-10-25 就发生过
+# 1.639 → 0.801 的折算；若把它当成暴跌，引擎会误判浮亏而下错单。
+SPLIT_JUMP = 0.15
+
+
+def detect_splits(hist, cfg):
+    """历史里是否存在只可能来自份额折算的价格跳变。
+
+    扫全历史而不是只看近期 —— 折算污染的是持仓成本基准，
+    不会因为时间过去就自己好。处理完后把日期写进 config 的
+    resolved_splits，警报与冻结才解除。
+    """
+    keys = {1: ("p1_px", show(cfg["part1"])),
+            2: ("p2_px", show(cfg["part2"])),
+            3: ("p3_px", show(cfg["part3"], "hold_code"))}
+    done = set(cfg.get("resolved_splits") or ())
+    hits = []
+    for part, (k, nm) in keys.items():
+        for i in range(1, len(hist)):
+            if hist[i]["date"] in done:
+                continue
+            a, b = hist[i - 1].get(k), hist[i].get(k)
+            if not a or not b:
+                continue
+            ch = b / a - 1
+            if abs(ch) > SPLIT_JUMP:
+                hits.append({"part": part, "name": nm, "date": hist[i]["date"],
+                             "prev": a, "now": b, "change": ch})
+    return {h["part"] for h in hits}, hits
+
+
+def _item(level, title, what, todo):
+    return {"level": level, "title": title, "what": what, "todo": todo}
+
+
+def pb_blind_days(hist, lookback=400):
+    """创业板PB 已连续多少个交易日取不到。切换条款靠它，断供即失明。"""
+    n = 0
+    for r in reversed(hist[-lookback:]):
+        if r.get("pb_pct") is None:
+            n += 1
+        else:
+            break
+    return n
+
+
+def build_health(hist, cfg, st, ma_items, dup_warns, split_hits,
+                 divs_age=None, skipped=(), fetch_ok=True, stale_days=0):
+    """把所有故障收敛成一份「出了什么事 + 你该做什么」的清单。
+
+    级别只有两档：critical 必须你动手，warn 可以先观察。
+    每条都必须给出可执行的步骤 —— 只说「异常」而不说怎么办等于没说。
+    """
+    repo = cfg.get("repo_url", "你的 GitHub 仓库")
+    out = []
+
+    if not fetch_ok:
+        out.append(_item(
+            "critical", "所有数据源都取不到行情",
+            "四个数据源全部失败，看板停在 %s，策略无法推进。" % hist[-1]["date"],
+            ["打开 Actions 日志，看失败的是哪几个源",
+             "多半是某个接口改版或限流；单源失效会自动降级，全挂通常是网络或接口同时变更",
+             "确认后修改 src/fetch.py 的对应抓取函数"]))
+    elif stale_days > int(cfg.get("alert_stale_days", 14)):
+        out.append(_item(
+            "critical", "行情已停滞 %d 天" % stale_days,
+            "最新数据仍是 %s。若这期间A股开过市，说明写入链路断了。" % hist[-1]["date"],
+            ["查 Actions 是否还在跑（cron-job.org 执行历史）",
+             "若在跑，看日志里 merge 跳过了哪些天、缺哪一列"]))
+
+    blind = pb_blind_days(hist)
+    if blind >= int(cfg.get("pb_blind_days", 5)):
+        out.append(_item(
+            "critical", "切换条款已失明（PB 数据断供 %d 个交易日）" % blind,
+            "创业板PB十年分位取不到，「PB≤%.0f%% 就全部清仓转创业板策略」"
+            "这条当前没有在监控。这是三份共用的总开关。"
+            % (cfg["switch"]["pb_percentile_threshold"] * 100),
+            ["登录 lixinger.com 查 token 是否过期或额度用尽",
+             "在 %s → Settings → Secrets and variables → Actions "
+             "更新 LIXINGER_TOKEN" % repo,
+             "更新后到 Actions → 每日监测 → Run workflow 手动跑一次验证"]))
+
+    if split_hits:
+        h0 = split_hits[0]
+        out.append(_item(
+            "critical", "%s 疑似份额折算，该份已冻结" % h0["name"],
+            "%s 单日从 %.4f 变到 %.4f（%+.1f%%）。A股ETF涨跌停是10%%，"
+            "这个幅度只可能是份额折算或数据出错，不是真实行情。"
+            "为避免按污染的成本基准误下单，这一份的止盈与加码已暂停"
+            "（定投是日历规则、按当天真实价格成交，不受影响，继续执行）。"
+            % (h0["date"], h0["prev"], h0["now"], h0["change"] * 100),
+            ["去基金公司公告页确认是否真的折算了",
+             "若确属折算：按折算比例修正 ledger.csv 里的持仓份数与成本",
+             "若是数据错误：等数据源修复，或在 data/history.json 中改正该日价格",
+             "处理完后，把 %s 写进 config.yaml 的 resolved_splits，"
+             "警报与冻结才会解除" % h0["date"],
+             "最后运行 python src/backtest.py，全部通过后再手动跑一次 Actions"]))
+
+    for k, nm in (("p1", "中概互联"), ("p2", "红利低波"), ("p3", "红利网格")):
+        if st and st[k]["cash"] < -1:
+            out.append(_item(
+                "critical", "%s 这份现金穿负（%.0f 元）" % (nm, st[k]["cash"]),
+                "现金为负说明账实不符，最常见的原因是把引擎已自动执行的成交"
+                "又抄进了 ledger.csv，等于同一笔买了两次。",
+                ["打开 ledger.csv，删掉与看板「近期事件」重复的行",
+                 "记住：照系统说的做了就什么都不用记，账本只记「和系统说的不一样」的部分",
+                 "改完提交推送，下次运行会自动重算"]))
+
+    for x in ma_items:
+        if not x["ok"]:
+            out.append(_item(
+                "critical", "均线信号停摆：%s" % x["label"],
+                x["msg"] + " 对应的买卖点当前不会触发。",
+                ["查 Actions 日志里 merge 跳过了哪些天",
+                 "MA250 需要 250 个连续非空值，中间缺一天就要 250 个交易日才恢复",
+                 "若确认是数据源问题，修好后历史会自动补齐并自愈"]))
+
+    for w in dup_warns:
+        out.append(_item(
+            "critical", "账本与系统记录冲突", w,
+            ["按上面提示删掉 ledger.csv 里重复的那一行",
+             "提交推送后下次运行会自动重算"]))
+
+    if divs_age is not None and divs_age > int(cfg.get("divs_stale_days", 60)):
+        out.append(_item(
+            "warn", "分红表已 %d 天未成功刷新" % divs_age,
+            "分红靠 data/dividends.json 自动入账。表过期不影响买卖信号，"
+            "但中证红利每年10月那次分红可能漏记，收益会被低估。",
+            ["本地运行 python src/dividends.py 看两个源是否都挂了",
+             "天天基金页面改版时需要更新 src/dividends.py 的解析规则"]))
+
+    if skipped:
+        out.append(_item(
+            "warn", "有 %d 天因数据不全被跳过" % len(skipped),
+            "缺日：%s。跳过是为保护 MA250 连续性，但会让均线窗口变旧。"
+            % "、".join(list(skipped)[:5]),
+            ["多数情况下数据源补发后会自动补齐，无需处理",
+             "若连续多天跳过，查 Actions 日志确认是哪一列长期缺失"]))
     return out

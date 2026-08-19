@@ -623,6 +623,112 @@ def main():
 
     print()
     print("=" * 78)
+    print("十七、故障必须被发现，且必须告诉我该做什么")
+    print("=" * 78)
+    good = synth(cfg["start_date"], 400, flat1, flatsig, pb=[0.79] * 400)
+    st_g, _ = E.run(good, cfg, base_state(cfg))
+    hz = E.build_health(good, cfg, st_g, E.ma_health(good, cfg), [], [],
+                        divs_age=1, skipped=(), fetch_ok=True, stale_days=0)
+    check("一切正常时不报任何故障", not hz,
+          "误报 %s" % [x["title"] for x in hz])
+
+    # PB 断供 → 切换条款失明
+    blind = [dict(r) for r in good]
+    for r in blind[-10:]:
+        r["pb_pct"] = None
+    check("PB 断供天数计算正确", E.pb_blind_days(blind) == 10,
+          "算得 %d 天" % E.pb_blind_days(blind))
+    st_b, tb = E.run(blind, cfg, base_state(cfg)), None
+    last_b = dict(blind[-1])
+    last_b["ma1"] = E.sma([x["p1_px"] for x in blind], 250, len(blind) - 1)
+    last_b["ma3"] = E.sma([x["sig_px"] for x in blind], 250, len(blind) - 1)
+    tb = E.next_triggers(st_b[0], cfg, last_b)
+    check("PB 断供时切换条款确会从观察点消失（故必须报警）",
+          not any("创业板" in t["label"] for t in tb),
+          "剩余观察点 %d 条" % len(tb))
+    hb = E.build_health(blind, cfg, st_b[0], E.ma_health(blind, cfg), [], [],
+                        divs_age=1, skipped=(), fetch_ok=True, stale_days=0)
+    pbi = [x for x in hb if "失明" in x["title"]]
+    check("PB 断供 → 报 critical 并给出步骤",
+          bool(pbi) and pbi[0]["level"] == "critical" and len(pbi[0]["todo"]) >= 2,
+          pbi[0]["title"] if pbi else "未报")
+    check("步骤里指明了要改哪个 Secret",
+          bool(pbi) and any("LIXINGER_TOKEN" in t for t in pbi[0]["todo"]), "")
+
+    # 份额折算 → 检出 + 冻结 + 不误下单
+    # 弹药未投完时发生折算 —— 这才是会真的下错单的场景
+    sp = synth(cfg["start_date"], 60, flat1, flatsig, pb=[0.79] * 60)
+    for r in sp[-10:]:
+        r["p1_px"] = r["p1_px"] * 0.5
+    frozen, hits = E.detect_splits(sp, cfg)
+    check("份额折算被检出", frozen == {1} and len(hits) >= 1,
+          "%s %+.1f%%" % (hits[0]["name"], hits[0]["change"] * 100) if hits else "未检出")
+    clean = synth(cfg["start_date"], 60, flat1, flatsig, pb=[0.79] * 60)
+    st_cl, _ = E.run(clean, cfg, base_state(cfg))
+    st_no, _ = E.run(sp, cfg, base_state(cfg))
+    st_fz, _ = E.run(sp, cfg, base_state(cfg), frozen=frozen)
+    n = lambda st, a: len([e for e in st["events"] if e["action"] == a])
+    check("不冻结时折算会凭空触发加码（故必须冻结）",
+          n(st_no, "中概加码买入") > n(st_cl, "中概加码买入"),
+          "无折算 %d 次 → 有折算 %d 次"
+          % (n(st_cl, "中概加码买入"), n(st_no, "中概加码买入")))
+    check("冻结后加码不再被误触发",
+          n(st_fz, "中概加码买入") == n(st_cl, "中概加码买入"),
+          "冻结后 %d 次" % n(st_fz, "中概加码买入"))
+    check("冻结不影响定投（日历规则，按当天真实价成交）",
+          n(st_fz, "中概定投买入") == n(st_cl, "中概定投买入"),
+          "正常 %d 次 ／ 冻结后 %d 次"
+          % (n(st_cl, "中概定投买入"), n(st_fz, "中概定投买入")))
+    check("冻结只影响出问题的那一份，不动其它份",
+          st_fz["p2"]["units"] == st_no["p2"]["units"], "")
+    check("冻结后弹药没有被白白打光",
+          st_fz["p1"]["cash"] > st_no["p1"]["cash"] + 1000,
+          "冻结后剩 %.0f 元 ／ 不冻结剩 %.0f 元"
+          % (st_fz["p1"]["cash"], st_no["p1"]["cash"]))
+    hs = E.build_health(sp, cfg, st_fz, E.ma_health(sp, cfg), [], hits,
+                        divs_age=1, skipped=(), fetch_ok=True, stale_days=0)
+    spi = [x for x in hs if "折算" in x["title"]]
+    check("份额折算 → 报 critical 并说明已冻结",
+          bool(spi) and spi[0]["level"] == "critical" and "冻结" in spi[0]["title"],
+          spi[0]["title"] if spi else "未报")
+    check("涨跌停以内的正常波动不误判为折算",
+          not E.detect_splits(good, cfg)[1], "")
+    cfg2 = dict(cfg, resolved_splits=[hits[0]["date"]] if hits else [])
+    check("写进 resolved_splits 后解除冻结",
+          not E.detect_splits(sp, cfg2)[1],
+          "已处理日期：%s" % (hits[0]["date"] if hits else "—"))
+
+    # 现金穿负
+    st_neg = {"p1": {"cash": -5000.0}, "p2": {"cash": 0.0}, "p3": {"cash": 0.0}}
+    hn = E.build_health(good, cfg, st_neg, [], [], [], divs_age=1,
+                        skipped=(), fetch_ok=True, stale_days=0)
+    check("现金穿负 → 报 critical 并指向 ledger.csv",
+          any("穿负" in x["title"] for x in hn)
+          and any("ledger.csv" in t for x in hn for t in x["todo"]), "")
+
+    # 每条故障都必须带可执行步骤
+    allh = hb + hs + hn + E.build_health(
+        good, cfg, st_g, E.ma_health(good, cfg), ["测试冲突"], [],
+        divs_age=999, skipped=["2026-01-05"], fetch_ok=False, stale_days=99)
+    check("每条故障都带 what 与至少 2 步 todo",
+          all(x.get("what") and len(x.get("todo") or []) >= 2 for x in allh),
+          "共 %d 条" % len(allh))
+    check("级别只有 critical / warn 两档",
+          set(x["level"] for x in allh) <= {"critical", "warn"}, "")
+
+    # 网页与推送都要接上
+    appjs = open(os.path.join(ROOT, "docs", "app.js"), encoding="utf-8").read()
+    check("网页渲染 health 且故障置顶", "d.health" in appjs and "prob" in appjs, "")
+    check("网页有客户端自查（流水线停摆时 data.json 不会自己变）",
+          "selfCheck" in appjs and "generated_at" in appjs, "")
+    check("网页对 localStorage 不可用做了降级",
+          "LS_OK" in appjs and "lsSet" in appjs, "")
+    ntf = open(os.path.join(ROOT, "src", "notify.py"), encoding="utf-8").read()
+    check("critical 故障会升级 Bark 标题",
+          '"⛔ 需要你处理 · %s"' in ntf, "")
+
+    print()
+    print("=" * 78)
     print("验收结果：通过 %d 项，失败 %d 项" % (len(PASS), len(FAIL)))
     if FAIL:
         print("失败项：")
