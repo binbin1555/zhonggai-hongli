@@ -372,6 +372,50 @@ def main():
 
     print()
     print("=" * 78)
+    print("十三、交易日判定：非交易日静默，交易日必推")
+    print("=" * 78)
+    import main as M
+
+    check("春节最长假期不会误报（7 个工作日 < 阈值 9）",
+          M._weekdays_between("2026-02-13", datetime.date(2026, 2, 24)) <= 9,
+          "2026 春节休市 2/13→2/24 共 %d 个工作日"
+          % M._weekdays_between("2026-02-13", datetime.date(2026, 2, 24)))
+    check("国庆最长假期不会误报",
+          M._weekdays_between("2026-09-30", datetime.date(2026, 10, 9)) <= 9,
+          "2026 国庆休市 9/30→10/9 共 %d 个工作日"
+          % M._weekdays_between("2026-09-30", datetime.date(2026, 10, 9)))
+    check("超过阈值会告警（模拟数据源挂 3 周）",
+          M._weekdays_between("2026-08-18", datetime.date(2026, 9, 8)) > 9,
+          "静默 %d 个工作日"
+          % M._weekdays_between("2026-08-18", datetime.date(2026, 9, 8)))
+    check("周末不计入工作日",
+          M._weekdays_between("2026-08-21", datetime.date(2026, 8, 24)) == 1,
+          "周五→周一 = %d 个工作日"
+          % M._weekdays_between("2026-08-21", datetime.date(2026, 8, 24)))
+
+    # 开市但必需列缺失 → 整行跳过（此时必须告警而非静默）
+    import fetch as FF
+    hh = [{"date": "2026-08-18", "p1_px": 1.116, "p2_px": 1.161,
+           "p3_px": 1.42, "sig_px": 5534.83, "pb_pct": 0.79}]
+    ser = {"p1_px": {"2026-08-19": 1.12}, "p2_px": {"2026-08-19": 1.16},
+           "p3_px": {"2026-08-19": 1.43}, "sig_px": {}}
+    _a, _r, sk = FF.merge(hh, ser)
+    key = "2026-08-19"
+    market_open = any(key in v for v in ser.values())
+    check("缺一列 → 整行跳过（保护 MA250）", sk == [key] and hh[-1]["date"] != key,
+          "skipped=%s，hist 末日仍为 %s" % (sk, hh[-1]["date"]))
+    check("但仍能判定当天开市（其它源有行情）", market_open,
+          "market_open=%s → 该走告警而非静默" % market_open)
+    miss = [k for k in FF.REQUIRED if key not in (ser.get(k) or {})]
+    check("能指出缺的是哪一列", miss == ["sig_px"], "缺 %s" % miss)
+
+    # 真·非交易日：所有源都没有当天
+    ser2 = {k: {} for k in FF.REQUIRED}
+    check("真非交易日 → market_open 为假，走静默",
+          not any(key in v for v in ser2.values()), "所有源均无当日数据")
+
+    print()
+    print("=" * 78)
     print("验收结果：通过 %d 项，失败 %d 项" % (len(PASS), len(FAIL)))
     if FAIL:
         print("失败项：")

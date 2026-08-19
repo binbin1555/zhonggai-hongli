@@ -37,4 +37,5 @@ switch:                         # 切换条款
   pb_percentile_threshold: 0.20 # 创业板PB十年分位≤20% → 暂停策略A
 
 alert_stale_days: 14
+max_quiet_weekdays: 9          # 连续静默超此工作日数即告警。A股最长假期（春节）约7个工作日，留2天余量
 page_url: "https://binbin1555.github.io/zhonggai-hongli/"   # Bark 推送点击跳转

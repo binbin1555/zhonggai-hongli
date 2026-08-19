@@ -45,6 +45,17 @@ def load_json(p, default):
         return default
 
 
+def _weekdays_between(a, b):
+    """(a, b] 之间的工作日个数。a 为字符串日期，b 为 date。"""
+    d = datetime.date(*map(int, a.split("-")))
+    n = 0
+    while d < b:
+        d = datetime.date.fromordinal(d.toordinal() + 1)
+        if d.weekday() < 5:
+            n += 1
+    return n
+
+
 def main():
     with open(os.path.join(ROOT, "config.yaml"), encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
@@ -54,15 +65,20 @@ def main():
 
     hist = load_json(HIST, [])
     log, fetch_ok, added, revised, skipped = [], True, [], [], []
+    # 今天 A 股到底开没开市 —— 独立判定，不从「有没有写进 hist」反推。
+    # 只要任一数据源给出了今日行情，就说明开市了。
+    market_open, too_early = None, False
 
     # ── 1. 抓取 ────────────────────────────────────────────────
     try:
         days = 1200 if len(hist) < 300 else 120
         series, log = F.fetch_all(cfg, token, days=days)
+        key = today.strftime("%Y-%m-%d")
+        market_open = any(key in v for v in series.values())
         # 盘中保护：收盘结算前抓到的当日数据是实时价，丢弃
         if now.hour < 17:
-            key = today.strftime("%Y-%m-%d")
-            if any(key in v for v in series.values()):
+            if market_open:
+                too_early = True
                 for v in series.values():
                     v.pop(key, None)
                 log.append("     丢弃 %s 盘中数据（当前 %02d:%02d 早于收盘结算）"
@@ -197,8 +213,31 @@ def main():
     if (os.environ.get("TEST_PUSH") or "").strip().lower() in ("1", "true", "yes"):
         N.push_daily(cfg, out, force=True)
         return 0
+
     if not is_trading_day:
-        print("  非交易日（最新数据 %s ≠ 今日 %s），静默" % (last_date, today))
+        # 开市了却没写进 hist —— 这不是非交易日，是数据缺失，必须告警
+        if market_open and not too_early:
+            miss = [k for k in F.REQUIRED
+                    if today.strftime("%Y-%m-%d") not in (series.get(k) or {})]
+            N.bark(cfg, "⚠️ 今日数据不全 · 已跳过",
+                   ("%s 是交易日（其它数据源已有行情），但 %s 未取到。"
+                    "整行未写入，以保护 MA250 连续性。"
+                    "看板仍停在 %s，请查看 Actions 日志。")
+                   % (today, "、".join(miss) or "某必需列", last_date),
+                   level="timeSensitive")
+            print("  !! 开市但数据不全，缺 %s —— 已告警" % miss)
+            return 1
+        # 连续静默过久也要告警：A股最长假期（春节）约 7 个工作日，阈值 9 留余量
+        quiet = _weekdays_between(last_date, today)
+        if quiet > int(cfg.get("max_quiet_weekdays", 9)):
+            N.bark(cfg, "⚠️ 连续 %d 个工作日无新数据" % quiet,
+                   ("最新数据仍为 %s。已超过任何法定假期长度，"
+                    "数据源很可能已失效，请检查 Actions 日志。") % last_date,
+                   level="timeSensitive")
+            print("  !! 连续静默 %d 个工作日 —— 已告警" % quiet)
+            return 1
+        print("  非交易日（最新数据 %s ≠ 今日 %s，静默 %d 个工作日）"
+              % (last_date, today, quiet))
         return 0
     N.push_daily(cfg, out)
     return 0
