@@ -461,6 +461,106 @@ def main():
 
     print()
     print("=" * 78)
+    print("十五、每日必推 + 临近触发提醒")
+    print("=" * 78)
+    import notify as NT
+
+    lvl = str(cfg.get("quiet_push_level", "active"))
+    # 真调一次：拦掉 bark，看无操作场景到底推没推、用什么标题和级别
+    calls = []
+    real_bark = NT.bark
+    NT.bark = lambda c, t, b, level="active", group="策略A": (
+        calls.append((t, level)) or True)
+    try:
+        st0, curve0 = E.run(synth(cfg["start_date"], 400, flat1, flatsig),
+                            cfg, base_state(cfg))
+        quiet_out = {"data_updated": "2026-09-01", "pending": [], "triggers": [],
+                     "state": {"p1": st0["p1"], "p2": st0["p2"], "p3": st0["p3"],
+                               "switched": False, "switch_date": None},
+                     "metrics": E.metrics(curve0, cfg["total_capital"]),
+                     "last_prices": {"p1_px": 1.114, "p2_px": 1.156,
+                                     "p3_px": 1.411, "sig_px": 5500.0,
+                                     "pb_pct": 0.79},
+                     "recent_events": []}
+        NT.push_daily(cfg, quiet_out)
+        check("「今日无操作」确实会推送", len(calls) == 1,
+              "标题：%s" % (calls[0][0] if calls else "未推送"))
+        check("无操作推送级别不是 passive（passive 在 iOS 上不亮屏）",
+              bool(calls) and calls[0][1] != "passive",
+              "级别 %s（config: quiet_push_level=%s）"
+              % (calls[0][1] if calls else "—", lvl))
+        calls.clear()
+        NT.push_daily(cfg, dict(quiet_out, triggers=[
+            {"label": "网格第 1 档买入", "cond": "中证红利跌破 5365.01",
+             "short": "还需跌 1.22%", "dist": 1.22, "unit": "%",
+             "near": True, "progress": 0.7}]))
+        check("临近时标题升级且级别提到 timeSensitive",
+              bool(calls) and "临近触发" in calls[0][0]
+              and calls[0][1] == "timeSensitive",
+              "标题：%s ／ 级别 %s" % (calls[0][0] if calls else "—",
+                                      calls[0][1] if calls else "—"))
+    finally:
+        NT.bark = real_bark
+
+    # 每条观察点都要带 dist/near
+    hist = synth(cfg["start_date"], 400, flat1, flatsig)
+    st, curve = E.run(hist, cfg, base_state(cfg))
+    last = dict(hist[-1])
+    last["ma1"] = E.sma([h["p1_px"] for h in hist], 250, len(hist) - 1)
+    last["ma3"] = E.sma([h["sig_px"] for h in hist], 250, len(hist) - 1)
+    trg = E.next_triggers(st, cfg, last)
+    check("每条观察点都带 dist/unit/near",
+          trg and all(("dist" in t and "unit" in t and "near" in t) for t in trg),
+          "%d 条观察点" % len(trg))
+
+    # 临近阈值：刚好在界内/界外
+    na = cfg.get("near_alert") or {}
+    thr = float(na.get("price_pct", 1.5))
+    ma0 = last["ma3"]
+    t1 = cfg["part3"]["buy_tiers"][0]
+    for mult, want, nm in ((1 + (thr - 0.3) / 100, True, "界内"),
+                           (1 + (thr + 0.3) / 100, False, "界外")):
+        hh = synth(cfg["start_date"], 400, flat1, flatsig)
+        for r in hh[-3:]:
+            r["sig_px"] = 5500.0 * t1 * mult
+        st2, _ = E.run(hh, cfg, base_state(cfg))
+        l2 = dict(hh[-1])
+        l2["ma1"] = E.sma([h["p1_px"] for h in hh], 250, len(hh) - 1)
+        l2["ma3"] = E.sma([h["sig_px"] for h in hh], 250, len(hh) - 1)
+        g = [t for t in E.next_triggers(st2, cfg, l2) if "网格第" in t["label"]]
+        got = bool(g and g[0]["near"])
+        check("临近判定 %s（阈值 %.1f%%）" % (nm, thr), got == want,
+              "还需跌 %.2f%% → near=%s" % (g[0]["dist"] if g else -1, got))
+
+    # 临近时推送标题升级
+    out = {"data_updated": "2026-09-01", "pending": [], "triggers":
+           [{"label": "网格第 1 档买入", "cond": "中证红利跌破 5365.01",
+             "short": "还需跌 1.22%", "dist": 1.22, "unit": "%",
+             "near": True, "progress": 0.7}],
+           "state": {"p1": st["p1"], "p2": st["p2"], "p3": st["p3"],
+                     "switched": False, "switch_date": None},
+           "metrics": E.metrics(curve, cfg["total_capital"]),
+           "last_prices": {k: hist[-1][k] for k in
+                           ("p1_px", "p2_px", "p3_px", "sig_px", "pb_pct")},
+           "recent_events": []}
+    body = NT.build_body(cfg, out)
+    check("临近项写进推送正文", "临近触发，请留意" in body and "还需跌 1.22%" in body,
+          "正文含临近段")
+    check("有待办时不重复显示临近段（指令优先）",
+          "临近触发，请留意" not in NT.build_body(
+              cfg, dict(out, pending=[{"action": "P1_DCA", "exec_date": "2026-09-02",
+                                       "label": "买入 中概互联ETF",
+                                       "detail": "定投"}])),
+          "待办存在时临近段让位")
+
+    appjs = open(os.path.join(ROOT, "docs", "app.js"), encoding="utf-8").read()
+    check("看板有临近触发横幅", "nearbar" in appjs and "t.near" in appjs, "")
+    css = open(os.path.join(ROOT, "docs", "style.css"), encoding="utf-8").read()
+    check("临近横幅有独立样式（虚线框，区别于待办实线）",
+          ".nearbar" in css and "dashed" in css.split(".nearbar")[1][:200], "")
+
+    print()
+    print("=" * 78)
     print("验收结果：通过 %d 项，失败 %d 项" % (len(PASS), len(FAIL)))
     if FAIL:
         print("失败项：")

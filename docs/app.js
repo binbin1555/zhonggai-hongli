@@ -88,6 +88,19 @@ function render(d){
     });
   }
 
+  /* ── 临近触发：还没到，但快到了 ── */
+  var near = (d.triggers || []).filter(function(t){ return t.near; });
+  if (near.length && !(st && st.switched)) {
+    h.push('<div class="nearbar"><div class="nb-h">⚠️ 临近触发 · ' +
+      near.length + ' 项</div>' +
+      near.map(function(t){
+        return '<div class="nb-i"><b>' + esc(t.label) + '</b>' +
+               '<span>' + esc(t.short) + '</span>' +
+               '<i>' + esc(t.cond) + '</i></div>';
+      }).join('') +
+      '<div class="nb-f">尚未触发，无需操作。到点当天会推送指令。</div></div>');
+  }
+
   /* ── 通知横幅：不需下单，但改变了系统行为 ── */
   (d.notices || []).forEach(function(nt, i){
     if (localStorage.getItem(nt.key)) return;
@@ -127,9 +140,14 @@ function render(d){
   /* ── 观察点 ── */
   if(d.triggers && d.triggers.length){
     var t = d.triggers.map(function(x){
-      return '<div class="trig"><div class="row"><span class="lab">' + esc(x.label) +
+      return '<div class="trig' + (x.near ? ' near' : '') + '">' +
+        '<div class="row"><span class="lab">' + (x.near ? '⚠️ ' : '') + esc(x.label) +
         '</span><span class="short">' + esc(x.short) + '</span></div>' +
-        '<div class="cond">' + esc(x.cond) + '</div></div>';
+        '<div class="cond">' + esc(x.cond) + '</div>' +
+        (x.progress != null
+          ? '<div class="pbar"><i style="width:' +
+            Math.max(1, Math.round(x.progress * 100)) + '%"></i></div>' : '') +
+        '</div>';
     }).join('');
     h.push('<div class="card"><h2>观察点（按接近程度排序）</h2>' + t + '</div>');
   }

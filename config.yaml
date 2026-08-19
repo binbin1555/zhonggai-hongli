@@ -38,5 +38,12 @@ switch:                         # 切换条款
 
 alert_stale_days: 14
 max_quiet_weekdays: 9          # 连续静默超此工作日数即告警。A股最长假期（春节）约7个工作日，留2天余量
+quiet_push_level: "active"     # 「今日无操作」的提醒级别。passive=静默投递不亮屏，active=正常亮屏
+
+near_alert:                    # 临近触发提醒：进入区间后推送标题升级 + 看板高亮
+  price_pct: 1.5               #   价格类（网格买卖、第一份止盈）：还需变动 <= 1.5%
+  value_pct: 5.0               #   市值类（第一份武装）：还差 <= 5%
+  pb_pp: 5.0                   #   PB分位（切换条款）：还差 <= 5 个百分点
+
 heartbeat_days: 6              # 超过此天数没出过声就主动推一条心跳（长假期间也能证明系统还活着）
 page_url: "https://binbin1555.github.io/zhonggai-hongli/"   # Bark 推送点击跳转

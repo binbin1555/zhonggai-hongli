@@ -92,3 +92,22 @@ button.ack.sync{margin-top:8px;opacity:.72;font-size:13px;padding:10px}
   border:1px solid currentColor;font-size:11px;font-weight:600;line-height:1.6;
   letter-spacing:.02em;
 }
+
+/* 临近触发：比待办弱、比普通观察点强 */
+.nearbar{
+  background:var(--warn-bg);border:1px dashed var(--warn-line);
+  border-radius:14px;padding:14px 16px;margin-bottom:14px;color:var(--warn-ink);
+}
+.nearbar .nb-h{font-size:13px;font-weight:600;letter-spacing:.02em;margin-bottom:10px}
+.nearbar .nb-i{padding:7px 0}
+.nearbar .nb-i+.nb-i{border-top:1px solid var(--warn-line)}
+.nearbar .nb-i b{font-size:16px;font-weight:600;display:inline-block;margin-right:8px}
+.nearbar .nb-i span{font-size:15px;font-variant-numeric:tabular-nums;opacity:.9}
+.nearbar .nb-i i{display:block;font-style:normal;font-size:12px;opacity:.75;margin-top:2px}
+.nearbar .nb-f{font-size:12px;opacity:.7;margin-top:10px;line-height:1.5}
+
+.trig.near .lab{font-weight:600;color:var(--warn-ink)}
+.trig.near .short{color:var(--warn-ink)}
+.pbar{height:3px;border-radius:2px;background:var(--line);margin-top:6px;overflow:hidden}
+.pbar>i{display:block;height:100%;background:var(--ink3);border-radius:2px}
+.trig.near .pbar>i{background:var(--warn-ink)}

@@ -343,14 +343,23 @@ def metrics(curve, capital):
 
 
 def next_triggers(st, cfg, last):
-    """下一步会触发什么，按接近程度降序。last: 最后一日的行情 dict。"""
+    """下一步会触发什么，按接近程度降序。last: 最后一日的行情 dict。
+
+    每条附带 dist（还需变动多少）与 near（是否已进入临近区间），
+    供推送标题升级与看板高亮使用。阈值见 config 的 near_alert。
+    """
     c1, c3 = cfg["part1"], cfg["part3"]
+    na = cfg.get("near_alert") or {}
+    near_px = float(na.get("price_pct", 1.5))
+    near_val = float(na.get("value_pct", 5.0))
+    near_pb = float(na.get("pb_pp", 5.0))
     out = []
     A, C = st["p1"], st["p3"]
 
     if st["switched"]:
         return [{"label": "策略A已停机", "cond": "已切换至创业板手册策略",
-                 "short": "—", "progress": 1.0}]
+                 "short": "—", "dist": 0.0, "unit": "%", "near": False,
+                 "progress": 1.0}]
 
     pb = last.get("pb_pct")
     if pb is not None:
@@ -358,6 +367,8 @@ def next_triggers(st, cfg, last):
         out.append({"label": "切换创业板策略",
                     "cond": "创业板PB十年分位 <= %.0f%%" % (thr * 100),
                     "short": "当前 %.1f%%" % (pb * 100),
+                    "dist": (pb - thr) * 100, "unit": "pp",
+                    "near": (pb - thr) * 100 <= near_pb,
                     "progress": min(1.0, thr / pb) if pb > 0 else 1.0})
 
     if not A["exited"]:
@@ -367,12 +378,18 @@ def next_triggers(st, cfg, last):
                         "cond": "本份总市值达 %.0f 元" % c1["arm_target"],
                         "short": "当前 %.0f 元，还差 %.1f%%"
                                  % (v1, (c1["arm_target"] / v1 - 1) * 100 if v1 else 0),
+                        "dist": (c1["arm_target"] / v1 - 1) * 100 if v1 else 999,
+                        "unit": "%",
+                        "near": (v1 > 0
+                                 and (c1["arm_target"] / v1 - 1) * 100 <= near_val),
                         "progress": min(1.0, v1 / c1["arm_target"])})
         elif last.get("ma1") and last["p1_px"]:
             buf = last["p1_px"] / last["ma1"] - 1
             out.append({"label": "第一份止盈",
                         "cond": "跌破 MA250 %.4f" % last["ma1"],
                         "short": "尚有 %.2f%% 缓冲" % (buf * 100),
+                        "dist": buf * 100, "unit": "%",
+                        "near": buf * 100 <= near_px,
                         "progress": max(0.0, 1 - min(1.0, buf / 0.15))})
 
     if last.get("ma3") and last["sig_px"]:
@@ -384,6 +401,8 @@ def next_triggers(st, cfg, last):
             out.append({"label": "网格第 %d 档买入" % (C["tier"] + 1),
                         "cond": "中证红利跌破 %.2f（MA250 x %.2f）" % (ma * t, t),
                         "short": "还需跌 %.2f%%" % abs(need),
+                        "dist": abs(need), "unit": "%",
+                        "near": abs(need) <= near_px,
                         "progress": max(0.0, min(1.0, (1 - r) / (1 - t))) if t < 1 else 0})
         if C["tier"] > 0:
             er = c3["exit_ratio"]
@@ -391,6 +410,8 @@ def next_triggers(st, cfg, last):
             out.append({"label": "网格清仓",
                         "cond": "中证红利涨过 %.2f（MA250 x %.2f）" % (ma * er, er),
                         "short": "还需涨 %.2f%%" % need,
+                        "dist": abs(need), "unit": "%",
+                        "near": abs(need) <= near_px,
                         "progress": max(0.0, min(1.0, r / er))})
 
     out.sort(key=lambda x: -x["progress"])

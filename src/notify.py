@@ -126,6 +126,14 @@ def build_body(cfg, out):
         lines.append("最大回撤 %s（运行未满一月，年化暂不显示）"
                      % _pct(met.get("max_drawdown")))
 
+    nr = _near(out)
+    if nr and not pend:
+        lines.append("")
+        lines.append("── 临近触发，请留意 ──")
+        for t in nr:
+            lines.append("⚠️ %s：%s" % (t["label"], t["short"]))
+            lines.append("　" + t["cond"])
+
     trig = out.get("triggers") or []
     if trig:
         lines.append("")
@@ -137,8 +145,14 @@ def build_body(cfg, out):
     return "\n".join(lines)
 
 
+def _near(out):
+    """已进入临近区间的观察点，按接近程度排序（next_triggers 已排好）。"""
+    return [t for t in (out.get("triggers") or []) if t.get("near")]
+
+
 def push_daily(cfg, out, force=False):
     body = build_body(cfg, out)
+    near = _near(out)
     pend = out.get("pending") or []
     acted = [e for e in (out.get("recent_events") or [])
              if e["date"] == out["data_updated"]]
@@ -156,4 +170,11 @@ def push_daily(cfg, out, force=False):
         title = "🟠 今日已执行 · " + "／".join(e["action"] for e in acted)
         detail = "\n".join("· %s" % e["detail"] for e in acted)
         return bark(cfg, title, detail + "\n\n" + body, level="timeSensitive")
-    return bark(cfg, "⚪ %s · 今日无操作" % out["data_updated"], body, level="passive")
+    if near:
+        n = near[0]
+        return bark(cfg,
+                    "🟡 临近触发 · %s（%s）" % (n["label"], n["short"]),
+                    body, level="timeSensitive")
+    # 无操作也每个交易日推一条。级别可在 config 调（passive 为静默投递，不亮屏）
+    return bark(cfg, "⚪ %s · 今日无操作" % out["data_updated"], body,
+                level=str(cfg.get("quiet_push_level", "active")))
