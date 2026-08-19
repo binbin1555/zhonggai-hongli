@@ -236,6 +236,16 @@ def main():
                    level="timeSensitive")
             print("  !! 连续静默 %d 个工作日 —— 已告警" % quiet)
             return 1
+        # 心跳：长假期间也要定期出声。否则「没收到推送」与「系统已死」
+        # 在手机上长得一模一样，而人对「没发生的事」是无感的。
+        gap = N.days_since_push(today)
+        hb = int(cfg.get("heartbeat_days", 6))
+        if gap >= hb:
+            how = ("首次运行" if gap > 9000 else "已 %d 天无推送" % gap)
+            N.bark(cfg, "💚 系统正常 · 心跳（%s）" % how,
+                   N.build_body(cfg, out), level="passive")
+            print("  心跳：%s（阈值 %d 天），已报平安" % (how, hb))
+            return 0
         print("  非交易日（最新数据 %s ≠ 今日 %s，静默 %d 个工作日）"
               % (last_date, today, quiet))
         return 0

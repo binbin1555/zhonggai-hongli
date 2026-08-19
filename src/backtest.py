@@ -416,6 +416,51 @@ def main():
 
     print()
     print("=" * 78)
+    print("十四、心跳：系统健康时也必须定期出声")
+    print("=" * 78)
+    import notify as NN
+    import tempfile
+
+    real = NN.HEART
+    tmp = os.path.join(tempfile.mkdtemp(), "heartbeat.json")
+    NN.HEART = tmp
+    try:
+        check("无打点记录时返回 9999（首次运行会立刻报平安）",
+              NN.days_since_push(datetime.date(2026, 8, 19)) == 9999,
+              "返回 %d" % NN.days_since_push(datetime.date(2026, 8, 19)))
+
+        NN._mark_alive()
+        today = datetime.date(*map(int, datetime.datetime.now(
+            datetime.timezone(datetime.timedelta(hours=8))
+        ).strftime("%Y-%m-%d").split("-")))
+        check("打点后当天返回 0", NN.days_since_push(today) == 0,
+              "返回 %d" % NN.days_since_push(today))
+        check("打点后第 6 天返回 6",
+              NN.days_since_push(datetime.date.fromordinal(today.toordinal() + 6)) == 6,
+              "返回 %d" % NN.days_since_push(
+                  datetime.date.fromordinal(today.toordinal() + 6)))
+
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write("坏掉的文件{{{")
+        check("打点文件损坏 → 退化为 9999，不崩溃",
+              NN.days_since_push(today) == 9999, "返回 %d" % NN.days_since_push(today))
+    finally:
+        NN.HEART = real
+
+    hb = int(cfg.get("heartbeat_days", 6))
+    check("心跳间隔短于最长假期（否则春节会静默到底）",
+          hb < 9, "heartbeat_days=%d，春节约 9 个自然日" % hb)
+    check("心跳间隔短于停摆告警阈值（先报平安、再报故障）",
+          hb < int(cfg.get("max_quiet_weekdays", 9)),
+          "心跳 %d 天 < 停摆 %d 个工作日" % (hb, cfg.get("max_quiet_weekdays", 9)))
+
+    src_n = open(os.path.join(ROOT, "src", "notify.py"), encoding="utf-8").read()
+    check("打点写在 bark() 成功分支里（所有推送出口统一覆盖）",
+          "_mark_alive()" in src_n.split("return True")[0].split("def bark")[1],
+          "bark 成功即打点")
+
+    print()
+    print("=" * 78)
     print("验收结果：通过 %d 项，失败 %d 项" % (len(PASS), len(FAIL)))
     if FAIL:
         print("失败项：")

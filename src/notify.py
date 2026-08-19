@@ -9,6 +9,7 @@
 故障           强提醒，无论是否交易日
 """
 import json
+import datetime
 import os
 import urllib.request
 
@@ -23,6 +24,32 @@ ACT_TEXT = {
     "P3_TIER": "调整 中证红利ETF 仓位",
     "SWITCH": "全部清仓，转创业板手册策略",
 }
+
+
+HEART = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "data", "heartbeat.json")
+
+
+def _mark_alive():
+    """推送成功即打点。心跳靠它判断系统「多久没出过声」。"""
+    try:
+        os.makedirs(os.path.dirname(HEART), exist_ok=True)
+        day = datetime.datetime.now(
+            datetime.timezone(datetime.timedelta(hours=8))).strftime("%Y-%m-%d")
+        with open(HEART, "w", encoding="utf-8") as f:
+            json.dump({"last_push": day}, f, ensure_ascii=False)
+    except Exception as exc:                                  # noqa: BLE001
+        print("[bark] 心跳打点失败: %r" % exc)
+
+
+def days_since_push(today):
+    """距上次成功推送的天数。无记录返回 9999。"""
+    try:
+        with open(HEART, encoding="utf-8") as f:
+            d = json.load(f).get("last_push")
+        return (today - datetime.date(*map(int, d.split("-")))).days
+    except Exception:                                         # noqa: BLE001
+        return 9999
 
 
 def bark(cfg, title, body, level="active", group="策略A"):
@@ -42,6 +69,7 @@ def bark(cfg, title, body, level="active", group="策略A"):
         with urllib.request.urlopen(req, timeout=30) as r:
             ok = json.loads(r.read().decode("utf-8", "ignore"))
         print("[bark] %s" % ok.get("message", ok))
+        _mark_alive()
         return True
     except Exception as exc:                                  # noqa: BLE001
         print("[bark] 推送失败: %r" % exc)

@@ -38,4 +38,5 @@ switch:                         # 切换条款
 
 alert_stale_days: 14
 max_quiet_weekdays: 9          # 连续静默超此工作日数即告警。A股最长假期（春节）约7个工作日，留2天余量
+heartbeat_days: 6              # 超过此天数没出过声就主动推一条心跳（长假期间也能证明系统还活着）
 page_url: "https://binbin1555.github.io/zhonggai-hongli/"   # Bark 推送点击跳转
