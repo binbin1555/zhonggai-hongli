@@ -109,6 +109,9 @@ def build_body(cfg, out):
         lines.append("【今日指令】%s 收盘执行：%s"
                      % (when, p.get("label") or ACT_TEXT.get(p["action"], p["action"])))
         lines.append("　" + p.get("detail", ""))
+        if p.get("precheck"):
+            lines.append("　⚠️ " + p["precheck"])
+        lines.append("　限价委托 · 避开 9:15–9:35 与 14:55–15:00")
     else:
         lines.append("【今日指令】不操作，继续持有")
     lines.append("")

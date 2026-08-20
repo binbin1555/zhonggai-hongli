@@ -34,6 +34,16 @@ def _week_key(s):
     return "%d-W%02d" % (iso[0], iso[1])
 
 
+# 执行文档「第一份·买卖前必查」：513050 是跨境ETF，折溢价可能很大，
+# 必须看软件的「折溢价率」栏，不能用昨日单位净值自己算。
+PRECHECK_BUY = ("下单前必看折溢价率（软件「折溢价率」栏，别用昨日净值自己算）："
+                "<1% 正常 ／ 1–3% 可接受 ／ >3% 今日暂缓，等回落再买")
+PRECHECK_SELL = ("下单前必看折溢价率：优先挑溢价高的日子卖。"
+                 ">3% 折价时暂缓，等回落")
+# 全局委托口径：限价；避开 9:15–9:35 与 14:55–15:00
+ORDER_RULE = "限价委托 · 避开 9:15–9:35 与 14:55–15:00"
+
+
 def show(part_cfg, code_key="code"):
     """标的的可读写法，如「中概互联ETF(513050)」。配置没写 name 就退回代码。"""
     code = part_cfg.get(code_key) or ""
@@ -85,11 +95,33 @@ def run(hist, cfg, state0=None, injections=None, divs=None,
     for r in (injections or []):
         inj.setdefault(r["date"], []).append(r)
 
-    # 分红表按「份」重排；第三份持仓是 ETF 而非信号指数，取 hold_code
+    # 分红表按「份」重排；第三份持仓是 ETF 而非信号指数，取 hold_code。
+    # 入账日按执行文档：「收到现金分红后，下一个交易日并入该份的现金池」，
+    # 即发放日之后的第一个交易日，不是除息日（两者相隔 3–5 个自然日）。
     divs = divs or {}
-    part_div = {1: divs.get(cfg["part1"]["code"], {}),
-                2: divs.get(cfg["part2"]["code"], {}),
-                3: divs.get(cfg["part3"]["hold_code"], {})}
+    _dates = [h["date"] for h in hist]
+
+    def _credit_day(rec, ex):
+        pay = rec.get("pay") if isinstance(rec, dict) else None
+        if not pay:
+            return ex                       # 无发放日信息时退回除息日
+        for x in _dates:
+            if x > pay:
+                return x
+        return None                         # 发放日在数据末尾之后，下次重放再记
+
+    def _remap(code):
+        out = {}
+        for ex, rec in (divs.get(code) or {}).items():
+            per = rec["per"] if isinstance(rec, dict) else rec
+            d = _credit_day(rec, ex)
+            if d:
+                out[d] = out.get(d, 0.0) + per
+        return out
+
+    part_div = {1: _remap(cfg["part1"]["code"]),
+                2: _remap(cfg["part2"]["code"]),
+                3: _remap(cfg["part3"]["hold_code"])}
     c1, c3 = cfg["part1"], cfg["part3"]
     n = len(hist)
     dates = [h["date"] for h in hist]
@@ -288,6 +320,7 @@ def run(hist, cfg, state0=None, injections=None, divs=None,
                 st["pending"].append({"action": "P1_EXIT", "exec_date": nxt or d,
                                       "part": 1,
                                       "label": "中概互联 · 止盈清仓",
+                                      "precheck": PRECHECK_SELL,
                                       "detail": "已开启止盈保护且跌破 MA250，"
                                                 "全部卖出 %s 约 %.0f 元"
                                                 % (show(c1),
@@ -306,6 +339,7 @@ def run(hist, cfg, state0=None, injections=None, divs=None,
                             {"action": "P1_ACCEL", "exec_date": nxt or d,
                              "part": 1, "amount": amt,
                              "label": "中概互联 · 加码买入",
+                             "precheck": PRECHECK_BUY,
                              "detail": "浮亏 %.1f%%，投入约 %.0f 元"
                                        % (abs(fp) * 100, amt)})
                         break
@@ -326,6 +360,7 @@ def run(hist, cfg, state0=None, injections=None, divs=None,
                     st["pending"].append({"action": "P1_DCA", "exec_date": nxt,
                                           "part": 1, "amount": per,
                                           "label": "中概互联 · 定投买入",
+                                          "precheck": PRECHECK_BUY,
                                           "detail": "第 %d/%d 次定投，买入 %s 约 %.0f 元"
                                                     % (A["dca_done"] + 1, c1["dca_weeks"],
                                                        show(c1), per)})

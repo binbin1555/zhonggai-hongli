@@ -115,7 +115,8 @@ function render(d){
         '<div class="big">' + esc(p.label || ACT[p.action] || p.action) + '</div>' +
         '<div class="sub">' + esc(p.detail || '') + '</div>' +
         (done ? '' :
-          '<div class="why">限价委托 · 避开开盘与尾盘五分钟</div>' +
+          (p.precheck ? '<div class="pre">⚠️ ' + esc(p.precheck) + '</div>' : '') +
+          '<div class="why">限价委托 · 避开 9:15–9:35 与 14:55–15:00</div>' +
           '<button class="ack" data-ack="' + i + '">我已执行</button>' +
           (GH_TOKEN ? '<button class="ack sync" data-sync="' + i + '">同步到仓库（跨设备）</button>' : '')
         ) + '</div>');

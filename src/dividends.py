@@ -42,7 +42,12 @@ def _get(url, referer=None, timeout=30):
 
 # ── 主源：天天基金 F10 ────────────────────────────────────────
 def eastmoney(code):
-    """返回 {除息日: 每份派现}。无分红的 ETF 返回空 dict（正常，非错误）。"""
+    """返回 {除息日: {"per": 每份派现, "pay": 分红发放日}}。
+
+    除息日与发放日相隔 3–5 个自然日。执行文档规定「收到现金分红后，
+    下一个交易日并入该份的现金池」，所以入账要按发放日算，不是除息日。
+    无分红的 ETF 返回空 dict（正常，非错误）。
+    """
     t = _get("https://fundf10.eastmoney.com/fhsp_%s.html" % code,
              "https://fundf10.eastmoney.com/")
     blk = re.search(r"分红送配详情.*?</table>", t, re.S)
@@ -57,7 +62,8 @@ def eastmoney(code):
         m = re.search(r"每(\d+)份派现金([\d.]+)元", c[3] or "")
         if not m:
             continue
-        out[c[2]] = float(m.group(2)) / float(m.group(1))
+        pay = c[4] if len(c) > 4 and re.match(r"^\d{4}-\d{2}-\d{2}$", c[4] or "") else None
+        out[c[2]] = {"per": float(m.group(2)) / float(m.group(1)), "pay": pay}
     return out
 
 
@@ -147,14 +153,17 @@ def collect(codes):
 
         if pri is not None and sec:
             for d, v in sec.items():
-                if d in pri and pri[d] > 0:
-                    if abs(v - pri[d]) / pri[d] > AGREE_TOL:
+                pv = (pri.get(d) or {}).get("per", 0) if d in pri else 0
+                if pv > 0:
+                    if abs(v - pv) / pv > AGREE_TOL:
                         log.append("WARN %s %s 两源不符：主 %.4f / 校验 %.4f"
-                                   % (code, d, pri[d], v))
+                                   % (code, d, pv, v))
                 else:
                     log.append("WARN %s %s 校验源有 %.4f，主源无记录"
                                % (code, d, v))
-        res[symbol] = pri if pri is not None else (sec or {})
+        # 校验源只有金额没有发放日，退化时按除息日入账并标注
+        res[symbol] = (pri if pri is not None
+                       else {d: {"per": v, "pay": None} for d, v in (sec or {}).items()})
         if pri is None and sec is None:
             log.append("FAIL %s 两源全挂，本次不更新该标的" % code)
             res.pop(symbol, None)
@@ -239,8 +248,9 @@ def main():
             print("  %s 无分红记录" % sym)
         else:
             last = sorted(rec)[-1]
-            print("  %s 共 %d 次，最近 %s 每份 %.4f 元"
-                  % (sym, len(rec), last, rec[last]))
+            r = rec[last]
+            print("  %s 共 %d 次，最近除息 %s 每份 %.4f 元，发放日 %s"
+                  % (sym, len(rec), last, r["per"], r.get("pay") or "未知"))
     print("\n已写入 %s" % OUT)
 
 

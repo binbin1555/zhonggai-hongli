@@ -125,3 +125,9 @@ button.ack.sync{margin-top:8px;opacity:.72;font-size:13px;padding:10px}
 .prob ol{margin:6px 0 0;padding-left:22px}
 .prob ol li{font-size:14px;line-height:1.65;margin:5px 0}
 .prob ol li::marker{font-weight:600}
+
+/* 下单前必查（执行文档「买卖前必查」条款） */
+.banner .pre{
+  font-size:13px;line-height:1.55;margin-top:10px;padding:9px 11px;
+  border-radius:8px;border:1px solid currentColor;opacity:.95;
+}

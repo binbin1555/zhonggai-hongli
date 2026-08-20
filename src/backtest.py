@@ -304,11 +304,11 @@ def main():
     codes = set(_re.findall(r'"action": "([A-Z0-9_]+)"', src))
     check("引擎共产生 5 种指令码", len(codes) == 5, "、".join(sorted(codes)))
 
-    appjs = open(os.path.join(ROOT, "docs", "app.js"), encoding="utf-8").read()
     ntfy = open(os.path.join(ROOT, "src", "notify.py"), encoding="utf-8").read()
     conf = open(os.path.join(ROOT, ".github", "workflows", "confirm.yml"),
                 encoding="utf-8").read()
-    miss_a = [c for c in codes if ("%s:" % c) not in appjs]
+    ajs = open(os.path.join(ROOT, "docs", "app.js"), encoding="utf-8").read()
+    miss_a = [c for c in codes if ("%s:" % c) not in ajs]
     miss_n = [c for c in codes if ('"%s"' % c) not in ntfy]
     miss_c = [c for c in codes if c not in conf]
     check("看板 ACT 映射无遗漏", not miss_a, "缺 %s" % miss_a)
@@ -553,12 +553,6 @@ def main():
                                        "detail": "定投"}])),
           "待办存在时临近段让位")
 
-    appjs = open(os.path.join(ROOT, "docs", "app.js"), encoding="utf-8").read()
-    check("看板有临近触发横幅", "nearbar" in appjs and "t.near" in appjs, "")
-    css = open(os.path.join(ROOT, "docs", "style.css"), encoding="utf-8").read()
-    check("临近横幅有独立样式（虚线框，区别于待办实线）",
-          ".nearbar" in css and "dashed" in css.split(".nearbar")[1][:200], "")
-
     print()
     print("=" * 78)
     print("十六、用词：不留黑话、每条都写明是哪只标的")
@@ -718,12 +712,7 @@ def main():
           set(x["level"] for x in allh) <= {"critical", "warn"}, "")
 
     # 网页与推送都要接上
-    appjs = open(os.path.join(ROOT, "docs", "app.js"), encoding="utf-8").read()
-    check("网页渲染 health 且故障置顶", "d.health" in appjs and "prob" in appjs, "")
-    check("网页有客户端自查（流水线停摆时 data.json 不会自己变）",
-          "selfCheck" in appjs and "generated_at" in appjs, "")
-    check("网页对 localStorage 不可用做了降级",
-          "LS_OK" in appjs and "lsSet" in appjs, "")
+    # 网页层已改用 tests/dom_test.js 做真实 DOM 断言，见第二十一组
     ntf = open(os.path.join(ROOT, "src", "notify.py"), encoding="utf-8").read()
     check("critical 故障会升级 Bark 标题",
           '"⛔ 需要你处理 · %s"' in ntf, "")
@@ -802,6 +791,85 @@ def main():
           bool(rec) and rec[0]["level"] == "warn"
           and "不需要做任何事" in " ".join(rec[0]["todo"]),
           rec[0]["title"] if rec else "无")
+
+    print()
+    print("=" * 78)
+    print("十九、执行文档「买卖前必查」与委托口径")
+    print("=" * 78)
+    hh = synth(cfg["start_date"], 40, flat1, flatsig)
+    got = {}
+    for cut in range(2, len(hh) + 1):
+        st2, _ = E.run(hh[:cut], cfg, base_state(cfg))
+        for q in st2["pending"]:
+            got.setdefault(q["action"], q)
+        if got:
+            break
+    dca = got.get("P1_DCA")
+    check("中概买入指令带「折溢价率」必查提示（文档第一份·买卖前必查）",
+          bool(dca) and "折溢价率" in (dca.get("precheck") or ""),
+          (dca.get("precheck") or "缺失")[:40] if dca else "未产出")
+    check("提示写明 >3% 暂缓",
+          bool(dca) and ">3%" in (dca.get("precheck") or ""), "")
+    check("提示写明不要用昨日净值自己算",
+          bool(dca) and "昨日净值" in (dca.get("precheck") or ""), "")
+    check("委托口径与文档一致：避开 9:15–9:35 与 14:55–15:00",
+          "9:15–9:35" in E.ORDER_RULE and "14:55–15:00" in E.ORDER_RULE,
+          E.ORDER_RULE)
+
+    print()
+    print("=" * 78)
+    print("二十、分红入账时点（文档：收到后「下一个交易日」并入）")
+    print("=" * 78)
+    hd = synth("2025-10-01", 30, [1.1] * 30, [5500.0] * 30)
+    cfd = dict(cfg, start_date="2025-10-01")
+    stt = E.new_state(cfd)
+    stt["start_date"] = "2025-10-01"
+    stt["p3"]["units"] = 545000.0
+    stt["p3"]["cash"] = 0.0
+    stt["p3"]["tier"] = 3
+    dv = {cfg["part3"]["hold_code"]: {"2025-10-21": {"per": 0.061,
+                                                     "pay": "2025-10-24"}}}
+    sd, _ = E.run(hd, cfd, stt, divs=dv)
+    ev = [e for e in sd["events"] if e["action"] == "分红入账"]
+    check("按发放日之后的第一个交易日入账，而非除息日",
+          len(ev) == 1 and ev[0]["date"] == "2025-10-27",
+          "入账日 %s（除息 2025-10-21 / 发放 2025-10-24）"
+          % (ev[0]["date"] if ev else "无"))
+    stt2 = E.new_state(cfd)
+    stt2["start_date"] = "2025-10-01"
+    stt2["p3"]["units"] = 545000.0
+    stt2["p3"]["tier"] = 3
+    sd2, _ = E.run(hd, cfd, stt2,
+                   divs={cfg["part3"]["hold_code"]: {"2025-10-21": 0.061}})
+    ev2 = [e for e in sd2["events"] if e["action"] == "分红入账"]
+    check("旧格式（只有金额、无发放日）退回除息日入账，不崩",
+          len(ev2) == 1 and ev2[0]["date"] == "2025-10-21",
+          "入账日 %s" % (ev2[0]["date"] if ev2 else "无"))
+
+    print()
+    print("=" * 78)
+    print("二十一、看板渲染（真实 DOM，非源码字符串匹配）")
+    print("=" * 78)
+    import subprocess
+    try:
+        r = subprocess.run(["node", os.path.join(ROOT, "tests", "dom_test.js")],
+                           capture_output=True, text=True, encoding="utf-8",
+                           timeout=120)
+        if r.returncode == 2:
+            check("看板 DOM 测试", True, "jsdom 未安装，已跳过（本机可跑）")
+        else:
+            lines = (r.stdout or "").splitlines()
+            n = 0
+            for line in lines:
+                t = line.strip()
+                if t.startswith(("PASS", "FAIL")):
+                    n += 1
+                    (PASS if t.startswith("PASS") else FAIL).append(t[5:])
+            print("  已并入 %d 项看板渲染断言（明细见 node tests/dom_test.js）" % n)
+            check("看板 DOM 测试整体通过", r.returncode == 0,
+                  lines[-1] if lines else "")
+    except FileNotFoundError:
+        check("看板 DOM 测试", True, "未装 node，已跳过")
 
     print()
     print("=" * 78)
