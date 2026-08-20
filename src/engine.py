@@ -67,7 +67,8 @@ def new_state(cfg):
     }
 
 
-def run(hist, cfg, state0=None, injections=None, divs=None, frozen=()):
+def run(hist, cfg, state0=None, injections=None, divs=None,
+        frozen=(), ma_frozen=()):
     """逐日重放。
 
     hist 每项需含：date, p1_px(513050), p2_px(512890), p3_px(515180),
@@ -79,6 +80,7 @@ def run(hist, cfg, state0=None, injections=None, divs=None, frozen=()):
     返回 (state, curve)
     """
     frozen = set(frozen or ())
+    ma_frozen = set(ma_frozen or ())
     inj = {}
     for r in (injections or []):
         inj.setdefault(r["date"], []).append(r)
@@ -130,6 +132,14 @@ def run(hist, cfg, state0=None, injections=None, divs=None, frozen=()):
                 h["units"] -= r["shares"]; h["cash"] += amt
                 h["cost"] = max(0.0, h["cost"] - amt)
                 ev(d, r["part"], "手工卖出", r["note"] or "ledger 记录")
+            elif r["action"] == "split":
+                # 份额折算：份数按比例变，成本与现金都不动
+                f = r["shares"] or 1.0
+                before = h["units"]
+                h["units"] *= f
+                ev(d, r["part"], "份额折算入账",
+                   "按 1:%g 折算，份额 %.0f → %.0f，成本与现金不变"
+                   % (f, before, h["units"]))
 
         # 0b. 分红自动入账（同日同份若 ledger 已手记，跳过以免重复）
         manual_div = {r["part"] for r in inj.get(d, [])
@@ -272,7 +282,8 @@ def run(hist, cfg, state0=None, injections=None, divs=None, frozen=()):
             # 折算污染的是「现价 vs 历史基准」的比较（成本、MA250），
             # 所以只掐掉止盈与加码；定投是日历规则、按固定金额买当天真实价格，
             # 不受影响，继续照常执行。
-            if (1 not in frozen and A["armed"] and A["units"] > 0 and ma1[i]
+            if (1 not in frozen and 1 not in ma_frozen
+                    and A["armed"] and A["units"] > 0 and ma1[i]
                     and p1[i] and p1[i] < ma1[i] and not has("P1_EXIT")):
                 st["pending"].append({"action": "P1_EXIT", "exec_date": nxt or d,
                                       "part": 1,
@@ -320,7 +331,8 @@ def run(hist, cfg, state0=None, injections=None, divs=None, frozen=()):
                                                        show(c1), per)})
 
         # 6. 第三份 · 中证红利网格
-        if ma3[i] and sig[i] and not has("P3_TIER") and 3 not in frozen:
+        if (ma3[i] and sig[i] and not has("P3_TIER")
+                and 3 not in frozen and 3 not in ma_frozen):
             r = sig[i] / ma3[i]
             if C["tier"] > 0 and r >= c3["exit_ratio"]:
                 want = 0
@@ -561,18 +573,24 @@ def detect_splits(hist, cfg):
             3: ("p3_px", show(cfg["part3"], "hold_code"))}
     done = set(cfg.get("resolved_splits") or ())
     hits = []
+    n = len(hist)
     for part, (k, nm) in keys.items():
-        for i in range(1, len(hist)):
-            if hist[i]["date"] in done:
-                continue
+        for i in range(1, n):
             a, b = hist[i - 1].get(k), hist[i].get(k)
             if not a or not b:
                 continue
             ch = b / a - 1
             if abs(ch) > SPLIT_JUMP:
                 hits.append({"part": part, "name": nm, "date": hist[i]["date"],
-                             "prev": a, "now": b, "change": ch})
-    return {h["part"] for h in hits}, hits
+                             "prev": a, "now": b, "change": ch,
+                             "resolved": hist[i]["date"] in done,
+                             "bars_since": n - 1 - i})
+    # 未处理 → 止盈与加码都停（成本基准被污染）
+    frozen = {h["part"] for h in hits if not h["resolved"]}
+    # 已处理但折算日还在 MA250 窗口内 → 只停止盈（均线仍跨着断点）
+    ma_n = max(cfg["part1"]["ma_n"], cfg["part3"]["ma_n"])
+    ma_frozen = {h["part"] for h in hits if h["bars_since"] < ma_n}
+    return frozen, hits, ma_frozen
 
 
 def _item(level, title, what, todo):
@@ -591,7 +609,8 @@ def pb_blind_days(hist, lookback=400):
 
 
 def build_health(hist, cfg, st, ma_items, dup_warns, split_hits,
-                 divs_age=None, skipped=(), fetch_ok=True, stale_days=0):
+                 divs_age=None, skipped=(), fetch_ok=True, stale_days=0,
+                 adj=None):
     """把所有故障收敛成一份「出了什么事 + 你该做什么」的清单。
 
     级别只有两档：critical 必须你动手，warn 可以先观察。
@@ -626,21 +645,48 @@ def build_health(hist, cfg, st, ma_items, dup_warns, split_hits,
              "更新 LIXINGER_TOKEN" % repo,
              "更新后到 Actions → 每日监测 → Run workflow 手动跑一次验证"]))
 
-    if split_hits:
-        h0 = split_hits[0]
-        out.append(_item(
-            "critical", "%s 疑似份额折算，该份已冻结" % h0["name"],
-            "%s 单日从 %.4f 变到 %.4f（%+.1f%%）。A股ETF涨跌停是10%%，"
-            "这个幅度只可能是份额折算或数据出错，不是真实行情。"
-            "为避免按污染的成本基准误下单，这一份的止盈与加码已暂停"
-            "（定投是日历规则、按当天真实价格成交，不受影响，继续执行）。"
-            % (h0["date"], h0["prev"], h0["now"], h0["change"] * 100),
-            ["去基金公司公告页确认是否真的折算了",
-             "若确属折算：按折算比例修正 ledger.csv 里的持仓份数与成本",
-             "若是数据错误：等数据源修复，或在 data/history.json 中改正该日价格",
-             "处理完后，把 %s 写进 config.yaml 的 resolved_splits，"
-             "警报与冻结才会解除" % h0["date"],
-             "最后运行 python src/backtest.py，全部通过后再手动跑一次 Actions"]))
+    adj = adj or {}
+    ma_n = cfg["part1"]["ma_n"]
+    codes = {1: cfg["part1"]["code"], 2: cfg["part2"]["code"],
+             3: cfg["part3"]["hold_code"]}
+    for h0 in split_hits:
+        code = codes[h0["part"]]
+        f = (adj.get(code) or {}).get(h0["date"])
+        left = ma_n - h0["bars_since"]
+
+        if not h0["resolved"]:
+            fx = ("系统按后复权数据推算为 1 : %g" % f if f
+                  else "系统未能算出比例，请以公告为准")
+            line = ("%s,%d,split,%s,%s,0,0,份额折算"
+                    % (h0["date"], h0["part"], code,
+                       ("%g" % f) if f else "填折算比例"))
+            out.append(_item(
+                "critical",
+                "%s 发生份额折算 —— 需要你手工修一行" % h0["name"],
+                "%s 单日从 %.4f 变到 %.4f（%+.1f%%）。A股ETF涨跌停只有10%%，"
+                "这个幅度只可能是份额折算。你券商账户里的份数其实已经按比例变了，"
+                "但系统还按旧份数算 —— 所以现在看板上这一份的市值、收益率、浮亏"
+                "全是错的。止盈与加码已暂停（避免按错误浮亏下单），定投照常。"
+                % (h0["date"], h0["prev"], h0["now"], h0["change"] * 100),
+                ["到基金公司公告页核对折算比例（%s）" % fx,
+                 "在 ledger.csv 末尾加这一行，比例填在 shares 列：  " + line,
+                 "把 %s 加进 config.yaml 的 resolved_splits，例如 "
+                 "resolved_splits: [\"%s\"]" % (h0["date"], h0["date"]),
+                 "提交推送，然后到 Actions → 每日监测 → Run workflow 跑一次",
+                 "注意：修完之后止盈信号还会自动继续冻结约 %d 个交易日"
+                 "（约 %.1f 个月），因为 MA250 的窗口里仍跨着折算断点。"
+                 "这段时间不需要你做任何事，到期自动恢复。" % (left, left / 20.5)]))
+        elif h0["bars_since"] < ma_n:
+            out.append(_item(
+                "warn",
+                "%s 止盈信号仍在恢复中（还需 %d 个交易日）" % (h0["name"], left),
+                "%s 的折算你已处理，份额与成本已经对上了。但 MA250 要 250 根"
+                "K线，窗口里现在还跨着折算那天的断点，算出来的均线没有意义，"
+                "所以止盈信号继续暂停。加码与定投都正常。"
+                % h0["date"],
+                ["不需要做任何事，%d 个交易日后自动恢复" % left,
+                 "这段时间如果中概互联大跌，系统不会提示止盈 —— "
+                 "若你想自己判断，请直接看行情软件里的 MA250（它是复权的，没有这个问题）"]))
 
     for k, nm in (("p1", "中概互联"), ("p2", "红利低波"), ("p3", "红利网格")):
         if st and st[k]["cash"] < -1:

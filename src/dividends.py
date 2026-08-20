@@ -20,6 +20,7 @@ from datetime import date
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "data", "dividends.json")
+ADJ = os.path.join(ROOT, "data", "adjust.json")
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 _CTX = ssl.create_default_context()
@@ -77,6 +78,31 @@ def _tencent(symbol, fq, start="2015-01-01"):
         for r in (n.get("hfqday") or n.get("day") or []):
             if r[2]:
                 out[r[0]] = float(r[2])
+    return out
+
+
+SPLIT_JUMP = 0.15          # 与 engine.SPLIT_JUMP 一致：超过涨跌停的跳变只可能是折算
+
+
+def split_factors(symbol):
+    """份额折算的精确比例。
+
+    折算当天不复权价按比例跳水，后复权价则连续。两者比值的跳变幅度
+    就是折算比例，且已剔除当天真实涨跌 —— 用收盘价直接相除会把涨跌
+    混进去（512890 那次实测差 2.31%）。
+    """
+    raw, hfq = _tencent(symbol, ""), _tencent(symbol, "hfq")
+    ds = sorted(set(raw) & set(hfq))
+    if len(ds) < 30:
+        raise RuntimeError("tencent %s: 复权序列不足" % symbol)
+    out = {}
+    for i in range(1, len(ds)):
+        d, dp = ds[i], ds[i - 1]
+        if abs(raw[d] / raw[dp] - 1) <= SPLIT_JUMP:
+            continue                      # 不复权价没大跳，不是折算
+        f = (hfq[d] / raw[d]) / (hfq[dp] / raw[dp])
+        if f > 1.05:                      # 比值必须放大，且幅度可观
+            out[d] = round(f, 6)
     return out
 
 
@@ -176,12 +202,33 @@ def save(res):
     return old
 
 
+def load_adj():
+    try:
+        with open(ADJ, encoding="utf-8") as f:
+            return {k: v for k, v in json.load(f).items() if not k.startswith("_")}
+    except Exception:                                       # noqa: BLE001
+        return {}
+
+
 def main():
     import yaml
     with open(os.path.join(ROOT, "config.yaml"), encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     codes = part_codes(cfg)
     res, log = collect(codes)
+    adj = {}
+    for sym in codes:
+        try:
+            adj[sym] = split_factors(sym)
+            if adj[sym]:
+                log.append("!!   %s 检出份额折算 %s" % (sym, adj[sym]))
+        except Exception as e:                              # noqa: BLE001
+            log.append("FAIL 折算比例 %s: %s" % (sym, e))
+    if adj:
+        adj["_refreshed_at"] = date.today().isoformat()
+        os.makedirs(os.path.dirname(ADJ), exist_ok=True)
+        with open(ADJ, "w", encoding="utf-8") as f:
+            json.dump(adj, f, ensure_ascii=False, indent=1, sort_keys=True)
     for line in log:
         print("  " + line)
     all_ = save(res)

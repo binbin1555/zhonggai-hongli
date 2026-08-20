@@ -77,6 +77,8 @@ def build(cfg, rows):
             h["cost"] = max(0.0, h["cost"] - amt)
         elif r["action"] == "dividend":
             h["cash"] += amt                      # 分红并入该份现金池
+        elif r["action"] == "split":
+            h["units"] *= (r["shares"] or 1.0)    # 份额折算：只改份数
         else:
             raise ValueError("未知 action: %s" % r["action"])
     return st

@@ -660,7 +660,7 @@ def main():
     sp = synth(cfg["start_date"], 60, flat1, flatsig, pb=[0.79] * 60)
     for r in sp[-10:]:
         r["p1_px"] = r["p1_px"] * 0.5
-    frozen, hits = E.detect_splits(sp, cfg)
+    frozen, hits, mafz = E.detect_splits(sp, cfg)
     check("份额折算被检出", frozen == {1} and len(hits) >= 1,
           "%s %+.1f%%" % (hits[0]["name"], hits[0]["change"] * 100) if hits else "未检出")
     clean = synth(cfg["start_date"], 60, flat1, flatsig, pb=[0.79] * 60)
@@ -688,14 +688,15 @@ def main():
     hs = E.build_health(sp, cfg, st_fz, E.ma_health(sp, cfg), [], hits,
                         divs_age=1, skipped=(), fetch_ok=True, stale_days=0)
     spi = [x for x in hs if "折算" in x["title"]]
-    check("份额折算 → 报 critical 并说明已冻结",
-          bool(spi) and spi[0]["level"] == "critical" and "冻结" in spi[0]["title"],
+    check("份额折算 → 报 critical 并直说要你动手",
+          bool(spi) and spi[0]["level"] == "critical"
+          and "需要你手工" in spi[0]["title"],
           spi[0]["title"] if spi else "未报")
     check("涨跌停以内的正常波动不误判为折算",
           not E.detect_splits(good, cfg)[1], "")
     cfg2 = dict(cfg, resolved_splits=[hits[0]["date"]] if hits else [])
     check("写进 resolved_splits 后解除冻结",
-          not E.detect_splits(sp, cfg2)[1],
+          not [x for x in E.detect_splits(sp, cfg2)[1] if not x["resolved"]],
           "已处理日期：%s" % (hits[0]["date"] if hits else "—"))
 
     # 现金穿负
@@ -726,6 +727,81 @@ def main():
     ntf = open(os.path.join(ROOT, "src", "notify.py"), encoding="utf-8").read()
     check("critical 故障会升级 Bark 标题",
           '"⛔ 需要你处理 · %s"' in ntf, "")
+
+    print()
+    print("=" * 78)
+    print("十八、份额折算：手工修完必须精确复原")
+    print("=" * 78)
+    NN = 60
+    pxs = [1.114] * NN
+    for i in range(50, NN):
+        pxs[i] *= 0.5
+    hsp = synth(cfg["start_date"], NN, pxs, [5500.0] * NN, pb=[0.79] * NN)
+    hcl = synth(cfg["start_date"], NN, [1.114] * NN, [5500.0] * NN,
+                pb=[0.79] * NN)
+    SD = hsp[50]["date"]
+    led = [r for r in read_ledger() if r["date"] <= cfg["start_date"]]
+
+    def s0(c):
+        st = build_state(c, led)
+        st["start_date"] = c["start_date"]
+        return st
+
+    fz, hits2, mafz = E.detect_splits(hsp, cfg)
+    stA, _ = E.run(hsp, cfg, s0(cfg), frozen=fz, ma_frozen=mafz)
+    cfg2 = dict(cfg, resolved_splits=[SD])
+    fz2, hits3, mafz2 = E.detect_splits(hsp, cfg2)
+    inj = [{"date": SD, "part": 1, "action": "split",
+            "code": cfg["part1"]["code"], "shares": 2.0, "price": 0,
+            "amount": 0, "note": "份额折算"}]
+    stB, _ = E.run(hsp, cfg2, s0(cfg2), injections=inj,
+                   frozen=fz2, ma_frozen=mafz2)
+    stC, _ = E.run(hcl, cfg, s0(cfg))
+    val = lambda st, hh: st["p1"]["units"] * hh[-1]["p1_px"] + st["p1"]["cash"]
+
+    check("ledger 支持 split 动作（原先只有 buy/sell/dividend）",
+          any("折算" in e["action"] for e in stB["events"]),
+          [e["detail"] for e in stB["events"] if "折算" in e["action"]][:1])
+    check("折算只改份数，不动成本与现金",
+          abs(stB["p1"]["cost"] - stA["p1"]["cost"]) < 1
+          and abs(stB["p1"]["cash"] - stA["p1"]["cash"]) < 1, "")
+    check("按提示修完后市值精确复原",
+          abs(val(stB, hsp) - val(stC, hcl)) < 1,
+          "修完 %.0f ／ 对照 %.0f ／ 未修 %.0f"
+          % (val(stB, hsp), val(stC, hcl), val(stA, hsp)))
+    check("未修时市值确实是错的（故必须强提示）",
+          abs(val(stA, hsp) - val(stC, hcl)) > 10000,
+          "偏差 %.0f 元" % (val(stA, hsp) - val(stC, hcl)))
+
+    check("写进 resolved_splits 后加码解冻", 1 not in fz2, "")
+    check("但止盈仍冻结——MA250 窗口还跨着折算断点",
+          1 in mafz2, "还需 %d 根K线"
+          % (cfg["part1"]["ma_n"] - hits3[0]["bars_since"]))
+    far = synth(cfg["start_date"], 400, [1.114] * 400, [5500.0] * 400,
+                pb=[0.79] * 400)
+    for i in range(50, 400):
+        far[i]["p1_px"] *= 0.5
+    _, _, mafz3 = E.detect_splits(far, dict(cfg, resolved_splits=[far[50]["date"]]))
+    check("折算滑出 MA250 窗口后止盈自动恢复", 1 not in mafz3,
+          "距今 %d 根K线 > %d" % (400 - 1 - 50, cfg["part1"]["ma_n"]))
+
+    # 提示必须能照抄
+    adj = {cfg["part1"]["code"]: {SD: 2.0}}
+    hz2 = E.build_health(hsp, cfg, stA, [], [], hits2, adj=adj)
+    sp_i = [x for x in hz2 if "折算" in x["title"]][0]
+    todo = " ".join(sp_i["todo"])
+    check("提示里给出精确折算比例", "1 : 2" in todo, "")
+    check("提示里给出可直接粘贴的 ledger 行",
+          ("%s,1,split,%s,2,0,0" % (SD, cfg["part1"]["code"])) in todo, "")
+    check("提示里写明 resolved_splits 怎么填", "resolved_splits" in todo, "")
+    check("提示里预告止盈还要冻多久（否则你会以为修坏了）",
+          "个交易日" in todo and "自动恢复" in todo, "")
+    hz3 = E.build_health(hsp, cfg2, stB, [], [], hits3, adj=adj)
+    rec = [x for x in hz3 if "恢复中" in x["title"]]
+    check("已处理但均线未清时降为 warn 并说明无需动作",
+          bool(rec) and rec[0]["level"] == "warn"
+          and "不需要做任何事" in " ".join(rec[0]["todo"]),
+          rec[0]["title"] if rec else "无")
 
     print()
     print("=" * 78)
