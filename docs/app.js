@@ -156,35 +156,43 @@ function render(d){
     kv('最大回撤', pct(met.max_drawdown), met.max_drawdown<0?'down':'') +
     '</div>');
 
+  /* ── 观察点（放在资产分布之前：先看下一步会发生什么） ── */
+  if(d.triggers && d.triggers.length){
+    var t = d.triggers.map(function(x){
+      return '<div class="trig' + (x.near ? ' near' : '') + '">' +
+        '<div class="tl">' + (x.near ? '⚠️ ' : '') + '离「' + esc(x.label) + '」</div>' +
+        '<div class="tn">' + esc(x.need || x.short || '') + '</div>' +
+        '<div class="tw">' + esc(x.now || x.cond || '') + '</div>' +
+        '</div>';
+    }).join('');
+    h.push('<div class="card"><h2>观察点 · 越靠前越接近触发</h2>' + t + '</div>');
+  }
+
   /* ── 资产分布 ── */
   if(st){
     var v1 = st.p1.units*px.p1_px + st.p1.cash;
     var v2 = st.p2.units*px.p2_px + st.p2.cash;
     var v3 = st.p3.units*px.p3_px + st.p3.cash;
     var tot = v1+v2+v3;
+    var w = function(v){ return tot>0 ? Math.max(1, Math.round(v/tot*100)) : 0; };
     h.push('<div class="card"><h2>资产分布</h2>' +
-      part('① 中概互联 ' + d.config.p1_code.replace('sh',''), v1, tot,
-           '持仓 ' + money(st.p1.units*px.p1_px) + ' ／ 现金 ' + money(st.p1.cash) +
+      '<div class="stack">' +
+        '<i class="s1" style="width:' + w(v1) + '%"></i>' +
+        '<i class="s2" style="width:' + w(v2) + '%"></i>' +
+        '<i class="s3" style="width:' + w(v3) + '%"></i>' +
+      '</div>' +
+      '<div class="legend">' +
+        '<span><b class="s1"></b>中概互联 ' + w(v1) + '%</span>' +
+        '<span><b class="s2"></b>红利低波 ' + w(v2) + '%</span>' +
+        '<span><b class="s3"></b>红利网格 ' + w(v3) + '%</span>' +
+      '</div>' +
+      part('① 中概互联 ' + d.config.p1_code.replace('sh',''), v1,
+           '持仓 ' + money(st.p1.units*px.p1_px) + ' ／ 待投现金 ' + money(st.p1.cash) +
            (st.p1.exited ? ' ／ 已止盈退出' : (st.p1.armed ? ' ／ 止盈保护中' : ''))) +
-      part('② 红利低波 ' + d.config.p2_code.replace('sh',''), v2, tot, '满仓持有') +
-      part('③ 红利网格 ' + d.config.p3_code.replace('sh',''), v3, tot,
-           st.p3.tier + '/3 仓 ／ 现金 ' + money(st.p3.cash)) +
+      part('② 红利低波 ' + d.config.p2_code.replace('sh',''), v2, '满仓持有，不操作') +
+      part('③ 红利网格 ' + d.config.p3_code.replace('sh',''), v3,
+           st.p3.tier + '/3 仓 ／ 待投现金 ' + money(st.p3.cash)) +
       '</div>');
-  }
-
-  /* ── 观察点 ── */
-  if(d.triggers && d.triggers.length){
-    var t = d.triggers.map(function(x){
-      return '<div class="trig' + (x.near ? ' near' : '') + '">' +
-        '<div class="row"><span class="lab">' + (x.near ? '⚠️ ' : '') + esc(x.label) +
-        '</span><span class="short">' + esc(x.short) + '</span></div>' +
-        '<div class="cond">' + esc(x.cond) + '</div>' +
-        (x.progress != null
-          ? '<div class="pbar"><i style="width:' +
-            Math.max(1, Math.round(x.progress * 100)) + '%"></i></div>' : '') +
-        '</div>';
-    }).join('');
-    h.push('<div class="card"><h2>观察点（按接近程度排序）</h2>' + t + '</div>');
   }
 
   /* ── 近期事件 ── */
@@ -231,12 +239,10 @@ function kv(k, v, c){
   return '<div class="kv"><span class="k">' + k + '</span>' +
     '<span class="v ' + (c||'') + '">' + v + '</span></div>';
 }
-function part(name, v, tot, meta){
-  var w = tot>0 ? Math.max(1, Math.round(v/tot*100)) : 0;
+function part(name, v, meta){
   return '<div class="part"><div class="top"><span class="nm">' + name +
     '</span><span class="amt">' + money(v) + '</span></div>' +
-    '<div class="meta">' + meta + ' ／ 占比 ' + w + '%</div>' +
-    '<div class="bar"><i style="width:' + w + '%"></i></div></div>';
+    '<div class="meta">' + meta + '</div></div>';
 }
 
 function syncToRepo(d, p, btn){

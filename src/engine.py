@@ -44,6 +44,10 @@ PRECHECK_SELL = ("下单前必看折溢价率：优先挑溢价高的日子卖�
 ORDER_RULE = "限价委托 · 避开 9:15–9:35 与 14:55–15:00"
 
 
+def _money(x):
+    return "{:,}".format(int(round(x)))
+
+
 def show(part_cfg, code_key="code"):
     """标的的可读写法，如「中概互联ETF(513050)」。配置没写 name 就退回代码。"""
     code = part_cfg.get(code_key) or ""
@@ -425,43 +429,46 @@ def next_triggers(st, cfg, last):
     A, C = st["p1"], st["p3"]
 
     if st["switched"]:
-        return [{"label": "策略A已停机", "cond": "已全部清仓，改执行创业板手册策略",
-                 "short": "—", "dist": 0.0, "unit": "%", "near": False,
-                 "progress": 1.0}]
+        return [{"label": "策略A已停机", "need": "已全部清仓",
+                 "now": "改执行创业板手册策略",
+                 "cond": "已全部清仓，改执行创业板手册策略",
+                 "short": "—", "dist": 0.0, "unit": "%", "near": False}]
 
     pb = last.get("pb_pct")
     if pb is not None:
         thr = cfg["switch"]["pb_percentile_threshold"]
         out.append({"label": "三份全部清仓 · 转创业板策略",
+                    "need": "还需创业板PB再跌 %.1f 个百分点" % ((pb - thr) * 100),
+                    "now": "当前十年分位 %.1f%%，要跌到 %.0f%% 以下"
+                           % (pb * 100, thr * 100),
                     "cond": "创业板PB十年分位跌到 %.0f%% 以下（触发后策略A停机）"
                             % (thr * 100),
                     "short": "当前 %.1f%%" % (pb * 100),
                     "dist": (pb - thr) * 100, "unit": "pp",
-                    "near": (pb - thr) * 100 <= near_pb,
-                    "progress": min(1.0, thr / pb) if pb > 0 else 1.0})
+                    "near": (pb - thr) * 100 <= near_pb})
 
     if not A["exited"]:
         v1 = A["units"] * (last["p1_px"] or 0) + A["cash"]
         if not A["armed"]:
+            gap = (c1["arm_target"] / v1 - 1) * 100 if v1 else 999
             out.append({"label": "中概互联 · 开启止盈保护",
-                        "cond": "这份市值涨到 %.0f 元后，才开始盯止盈信号（现在还不盯）"
-                                % c1["arm_target"],
-                        "short": "当前 %.0f 元，还差 %.1f%%"
-                                 % (v1, (c1["arm_target"] / v1 - 1) * 100 if v1 else 0),
-                        "dist": (c1["arm_target"] / v1 - 1) * 100 if v1 else 999,
-                        "unit": "%",
-                        "near": (v1 > 0
-                                 and (c1["arm_target"] / v1 - 1) * 100 <= near_val),
-                        "progress": min(1.0, v1 / c1["arm_target"])})
+                        "need": "还需这份市值再涨 %.1f%%" % gap,
+                        "now": "当前 %s 元，要涨到 %s 元"
+                               % (_money(v1), _money(c1["arm_target"])),
+                        "cond": "涨到后才开始盯 MA250 止盈信号（现在还不盯）",
+                        "short": "当前 %.0f 元，还差 %.1f%%" % (v1, gap),
+                        "dist": gap, "unit": "%",
+                        "near": v1 > 0 and gap <= near_val})
         elif last.get("ma1") and last["p1_px"]:
             buf = last["p1_px"] / last["ma1"] - 1
             out.append({"label": "中概互联 · 止盈清仓",
-                        "cond": "已在盯止盈：跌破 MA250 %.4f 就全部卖出"
-                                % last["ma1"],
+                        "need": "还需跌 %.2f%%" % (buf * 100),
+                        "now": "现价 %.4f，跌破 MA250 %.4f 就全部卖出"
+                               % (last["p1_px"], last["ma1"]),
+                        "cond": "已开启止盈保护，正在盯 MA250",
                         "short": "尚有 %.2f%% 缓冲" % (buf * 100),
                         "dist": buf * 100, "unit": "%",
-                        "near": buf * 100 <= near_px,
-                        "progress": max(0.0, 1 - min(1.0, buf / 0.15))})
+                        "near": buf * 100 <= near_px})
 
     if last.get("ma3") and last["sig_px"]:
         ma = last["ma3"]
@@ -470,22 +477,29 @@ def next_triggers(st, cfg, last):
             t = c3["buy_tiers"][C["tier"]]
             need = (ma * t / last["sig_px"] - 1) * 100
             out.append({"label": "红利网格 · 第 %d 档买入" % (C["tier"] + 1),
-                        "cond": "中证红利跌破 %.2f（MA250 x %.2f）" % (ma * t, t),
+                        "need": "还需跌 %.2f%%" % abs(need),
+                        "now": "中证红利 %.2f，要跌破 %.2f（MA250 × %.2f）"
+                               % (last["sig_px"], ma * t, t),
+                        "cond": "跌破后买入至 %d/3 仓" % (C["tier"] + 1),
                         "short": "还需跌 %.2f%%" % abs(need),
                         "dist": abs(need), "unit": "%",
-                        "near": abs(need) <= near_px,
-                        "progress": max(0.0, min(1.0, (1 - r) / (1 - t))) if t < 1 else 0})
+                        "near": abs(need) <= near_px})
         if C["tier"] > 0:
             er = c3["exit_ratio"]
             need = (ma * er / last["sig_px"] - 1) * 100
             out.append({"label": "红利网格 · 全部清仓",
-                        "cond": "中证红利涨过 %.2f（MA250 x %.2f）" % (ma * er, er),
+                        "need": "还需涨 %.2f%%" % need,
+                        "now": "中证红利 %.2f，要涨过 %.2f（MA250 × %.2f）"
+                               % (last["sig_px"], ma * er, er),
+                        "cond": "涨过后三档一次性全部清空",
                         "short": "还需涨 %.2f%%" % need,
                         "dist": abs(need), "unit": "%",
-                        "near": abs(need) <= near_px,
-                        "progress": max(0.0, min(1.0, r / er))})
+                        "near": abs(need) <= near_px})
 
-    out.sort(key=lambda x: -x["progress"])
+    # 按「还需变动多少」升序 —— 越小越接近触发。
+    # 原先按 progress 排序是错的：三条观察点的 progress 用了三种互不可比的
+    # 算法（市值/目标、阈值/现值、在带宽里走了多远），拿来互排没有意义。
+    out.sort(key=lambda x: x["dist"])
     return out
 
 

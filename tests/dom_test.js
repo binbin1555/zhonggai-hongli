@@ -99,10 +99,27 @@ doc = render(D({ generated_at: '2020-01-01 21:14:00+08:00' }));
 check('页面数据过旧时报「系统已停止运行」', /系统已停止运行/.test(txt(doc)));
 check('并给出排查步骤', doc.querySelectorAll('.prob.crit ol li').length >= 3);
 
+// 5b · 卡片顺序与资产构成条
+doc = render(D({ triggers: [
+  { label: 'T1', need: '还需跌 3.36%', now: '中证红利 5553 → 5366', dist: 3.36, unit: '%', near: false },
+  { label: 'T2', need: '还需涨 33.2%', now: '30万 → 40万', dist: 33.2, unit: '%', near: false }] }));
+const heads = [...doc.querySelectorAll('.card h2')].map(e => e.textContent);
+check('观察点排在资产分布之前',
+      heads.findIndex(t => /观察点/.test(t)) < heads.findIndex(t => /资产分布/.test(t)),
+      heads.join(' → '));
+check('观察点用「离「X」+ 还需…」的直白句式',
+      /离「T1」/.test(txt(doc)) && /还需跌 3\.36%/.test(txt(doc)));
+check('观察点里已无进度条', doc.querySelectorAll('.trig .pbar').length === 0);
+check('观察点按 dist 升序（越靠前越近）',
+      doc.querySelectorAll('.trig')[0].textContent.includes('T1'));
+check('资产分布用一条堆叠构成条', doc.querySelectorAll('.stack > i').length === 3);
+check('构成条有图例', doc.querySelectorAll('.legend span').length === 3);
+check('每行已无独立进度条', doc.querySelectorAll('.part .bar').length === 0);
+
 // 6 · 临近触发
 doc = render(D({ triggers: [
-  { label: '红利网格 · 第 1 档买入', cond: '跌破 5365', short: '还需跌 1.2%', dist: 1.2, unit: '%', near: true, progress: 0.7 },
-  { label: '切换', cond: 'PB<=20%', short: '当前 73%', dist: 53, unit: 'pp', near: false, progress: 0.2 }] }));
+  { label: '红利网格 · 第 1 档买入', need: '还需跌 1.2%', now: '跌破 5365', dist: 1.2, unit: '%', near: true },
+  { label: '切换', need: '还需跌 53pp', now: 'PB<=20%', dist: 53, unit: 'pp', near: false }] }));
 check('临近项渲染独立横幅', doc.querySelectorAll('.nearbar').length === 1);
 check('临近横幅写明「无需操作」', /尚未触发，无需操作/.test(txt(doc)));
 check('观察点里临近项被标出', doc.querySelectorAll('.trig.near').length === 1);

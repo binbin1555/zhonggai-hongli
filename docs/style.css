@@ -63,15 +63,24 @@ button.ack.sync{margin-top:8px;opacity:.72;font-size:13px;padding:10px}
 .part .nm{font-size:15px}
 .part .amt{font-variant-numeric:tabular-nums;font-weight:500}
 .part .meta{font-size:12px;color:var(--ink3);margin-top:3px}
-.bar{height:4px;border-radius:2px;background:var(--line);margin-top:7px;overflow:hidden}
-.bar>i{display:block;height:100%;background:var(--ink3);border-radius:2px}
 
-.trig{padding:10px 0;font-size:14px}
+.trig{padding:12px 0}
 .trig+.trig{border-top:1px solid var(--line)}
-.trig .row{display:flex;justify-content:space-between;gap:12px}
-.trig .lab{color:var(--ink)}
-.trig .short{color:var(--ink2);font-variant-numeric:tabular-nums;white-space:nowrap}
-.trig .cond{font-size:12px;color:var(--ink3);margin-top:3px}
+.trig .tl{font-size:13px;color:var(--ink2)}
+.trig .tn{font-size:19px;font-weight:600;letter-spacing:-.01em;margin-top:3px;
+  font-variant-numeric:tabular-nums}
+.trig .tw{font-size:12px;color:var(--ink2);margin-top:4px;line-height:1.5}
+.trig.near .tl,.trig.near .tn{color:var(--warn-ink)}
+
+/* 资产构成：一条堆叠条，读作「钱是怎么分的」，不是进度 */
+/* 段之间留缝：不靠颜色对比也能看清分界 */
+.stack{display:flex;gap:3px;height:11px;margin-bottom:10px}
+.stack>i{display:block;height:100%;border-radius:3px;min-width:3px}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;
+  color:var(--ink2);margin-bottom:6px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend b{width:9px;height:9px;border-radius:2px;display:inline-block}
+.s1{background:#d98c2b} .s2{background:#3b7fc4} .s3{background:#4fa06a}
 
 .ev{font-size:13px;padding:8px 0;color:var(--ink2)}
 .ev+.ev{border-top:1px solid var(--line)}
@@ -110,9 +119,6 @@ button.ack.sync{margin-top:8px;opacity:.72;font-size:13px;padding:10px}
 
 .trig.near .lab{font-weight:600;color:var(--warn-ink)}
 .trig.near .short{color:var(--warn-ink)}
-.pbar{height:3px;border-radius:2px;background:var(--line);margin-top:6px;overflow:hidden}
-.pbar>i{display:block;height:100%;background:var(--ink3);border-radius:2px}
-.trig.near .pbar>i{background:var(--warn-ink)}
 
 /* 故障横幅：永远置顶，红=必须动手，黄=可以先观察 */
 .prob{border-radius:14px;padding:16px;margin-bottom:14px;border:2px solid}
