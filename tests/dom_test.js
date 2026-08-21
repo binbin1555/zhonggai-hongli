@@ -116,6 +116,23 @@ check('资产分布用一条堆叠构成条', doc.querySelectorAll('.stack > i')
 check('构成条有图例', doc.querySelectorAll('.legend span').length === 3);
 check('每行已无独立进度条', doc.querySelectorAll('.part .bar').length === 0);
 
+// 5c · 拿到旧引擎产出的数据时，前端仍要保证顺序与文案不出错
+doc = render(D({ triggers: [
+  { label: '远', cond: 'c1', short: '当前 302592 元，还差 32.2%', dist: 32.19, unit: '%', near: false, progress: 0.75 },
+  { label: '近', cond: 'c2', short: '还需跌 3.91%', dist: 3.91, unit: '%', near: false, progress: 0.16 }] }));
+check('旧数据（无 need 字段）不留空白，回退到 short',
+      /还需跌 3\.91%/.test(txt(doc)) && /302592/.test(txt(doc)));
+check('旧数据顺序错时，前端按 dist 兜底重排',
+      doc.querySelectorAll('.trig')[0].textContent.includes('近'),
+      doc.querySelectorAll('.trig')[0].querySelector('.tl').textContent.trim());
+check('dist 缺失的条目排到最后不报错',
+      (function () {
+        const dd = render(D({ triggers: [
+          { label: '无dist', cond: 'c', short: 's', near: false },
+          { label: '有dist', cond: 'c', short: 's', dist: 1, unit: '%', near: false }] }));
+        return dd.querySelectorAll('.trig')[0].textContent.includes('有dist');
+      })());
+
 // 6 · 临近触发
 doc = render(D({ triggers: [
   { label: '红利网格 · 第 1 档买入', need: '还需跌 1.2%', now: '跌破 5365', dist: 1.2, unit: '%', near: true },

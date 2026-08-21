@@ -158,7 +158,14 @@ function render(d){
 
   /* ── 观察点（放在资产分布之前：先看下一步会发生什么） ── */
   if(d.triggers && d.triggers.length){
-    var t = d.triggers.map(function(x){
+    /* 前端自己也按 dist 升序排一遍。引擎已经排好了，但排序结果是烤死在
+       data.json 里的——若看板拿到的是旧引擎产出的数据，顺序就是旧的，
+       前端无从纠正。这里兜一道，保证「越靠前越接近触发」永远成立。 */
+    var tg = d.triggers.slice().sort(function(a,b){
+      var x = (a.dist == null ? 1e9 : a.dist), y = (b.dist == null ? 1e9 : b.dist);
+      return x - y;
+    });
+    var t = tg.map(function(x){
       return '<div class="trig' + (x.near ? ' near' : '') + '">' +
         '<div class="tl">' + (x.near ? '⚠️ ' : '') + '离「' + esc(x.label) + '」</div>' +
         '<div class="tn">' + esc(x.need || x.short || '') + '</div>' +
