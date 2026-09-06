@@ -1,17 +1,17 @@
 {
- "generated_at": "2026-09-05 21:14:18+08:00",
+ "generated_at": "2026-09-06 21:14:18+08:00",
  "data_updated": "2026-09-04",
- "stale_days": 1,
+ "stale_days": 2,
  "fetch_ok": true,
  "added": [],
  "revised": [],
  "skipped": [],
  "log": [
-  "OK   tencent sh513050 (85)",
-  "OK   tencent sh512890 (85)",
-  "OK   tencent sh515180 (85)",
+  "OK   tencent sh513050 (84)",
+  "OK   tencent sh512890 (84)",
+  "OK   tencent sh515180 (84)",
   "OK   csindex 000922 (85)",
-  "OK   lixinger 399006 PB (85)"
+  "OK   lixinger 399006 PB (84)"
  ],
  "acknowledged": {},
  "ledger_warns": [],
